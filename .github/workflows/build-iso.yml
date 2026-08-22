@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -46,12 +49,46 @@ jobs:
       - name: List output files
         run: ls -lh *.iso *.log 2>/dev/null || echo "No ISO/log files found"
 
-      - name: Upload ISO Artifact
+      - name: Rename ISO with version tag
+        if: success()
+        run: |
+          DATE=$(date +%Y%m%d)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          mv live-image-amd64.hybrid.iso stupix-${DATE}-${SHORT_SHA}.iso
+          echo "ISO_NAME=stupix-${DATE}-${SHORT_SHA}.iso" >> $GITHUB_ENV
+          echo "RELEASE_TAG=build-${DATE}-${SHORT_SHA}" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Stupix ${{ env.RELEASE_TAG }}"
+          body: |
+            Stupix Live System - Automated Build
+
+            Build date: ${{ env.RELEASE_TAG }}
+            Commit: ${{ github.sha }}
+
+            Boot from USB or via virtual media (iDRAC, iLO, IPMI).
+
+            After boot the system will:
+            - Obtain an IP via DHCP
+            - Clone https://github.com/Maxsander123/stupix to /opt/stupix
+            - Execute /opt/stupix/auto.sh
+            - Write all diagnostic output to /var/log/stupix/
+
+            Default SSH login: root / stupix
+          files: ${{ env.ISO_NAME }}
+          draft: false
+          prerelease: false
+
+      - name: Upload ISO Artifact (fallback)
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: stupix-live-iso
-          path: live-image-amd64.hybrid.iso
+          path: "*.iso"
           retention-days: 30
 
       - name: Upload Build Log
@@ -61,3 +98,4 @@ jobs:
           name: build-log
           path: build.log
           retention-days: 7
+
