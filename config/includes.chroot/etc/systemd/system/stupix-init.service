@@ -1,0 +1,16 @@
+[Unit]
+Description=Stupix Boot Init - Clone Repo and Run auto.sh
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/opt/stupix
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/stupix-init.sh
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

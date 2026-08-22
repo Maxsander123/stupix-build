@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+lb config noauto \
+    --architectures amd64 \
+    --linux-flavours amd64 \
+    --distribution bookworm \
+    --binary-images iso-hybrid \
+    --bootappend-live "boot=live components hostname=stupix username=root noeject noprompt quiet net.ifnames=0 biosdevname=0" \
+    --memtest none \
+    --iso-application "Stupix Server Diagnostics" \
+    --iso-volume "STUPIX" \
+    --apt-recommends false \
+    --debootstrap-options "--variant=minbase" \
+    --compression xz \
+    "${@}"

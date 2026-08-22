@@ -1,0 +1,64 @@
+# Live-Boot base
+live-boot
+live-config
+live-config-systemd
+
+# Network / DHCP
+isc-dhcp-client
+iproute2
+iputils-ping
+curl
+wget
+net-tools
+ncat
+dnsutils
+mtr-tiny
+iperf3
+
+# SSH
+openssh-server
+openssh-client
+
+# IPMI / iDRAC
+ipmitool
+openipmi
+freeipmi-tools
+
+# Hardware diagnostics
+dmidecode
+lshw
+pciutils
+usbutils
+hwinfo
+smartmontools
+nvme-cli
+sg3-utils
+lsscsi
+
+# Storage
+parted
+gdisk
+mdadm
+
+# Monitoring
+htop
+iotop
+sysstat
+
+# Network analysis
+tcpdump
+nmap
+
+# Stress testing
+stress-ng
+memtester
+
+# Tools
+git
+vim
+tmux
+jq
+bash-completion
+ca-certificates
+python3
+python3-requests

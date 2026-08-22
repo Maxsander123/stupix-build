@@ -1,0 +1,50 @@
+#!/bin/bash
+set -e
+
+# Set root password
+echo "root:stupix" | chpasswd
+
+# Allow SSH root login
+sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sed -i 's/PermitRootLogin without-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+
+# Hostname
+echo "stupix" > /etc/hostname
+
+# Load IPMI modules on boot
+cat >> /etc/modules << 'MODULES'
+ipmi_si
+ipmi_devintf
+ipmi_msghandler
+MODULES
+
+# Network: DHCP on all ethernet interfaces
+mkdir -p /etc/systemd/network
+cat > /etc/systemd/network/10-dhcp.network << 'NETCONF'
+[Match]
+Name=eth* en* ens* eno* enp* em*
+
+[Network]
+DHCP=yes
+NETCONF
+
+systemctl enable systemd-networkd 2>/dev/null || true
+systemctl enable networking 2>/dev/null || true
+
+# Create log directory
+mkdir -p /var/log/stupix
+chmod 755 /var/log/stupix
+
+# MOTD
+cat > /etc/motd << 'MOTD'
+
+  STUPIX - Server Diagnostics Live System
+  Debian Bookworm | RAM-only | IPMI/iDRAC ready
+
+  Log directory : /var/log/stupix/
+  Repo          : /opt/stupix/
+  Init log      : /var/log/stupix/init.log
+
+MOTD
