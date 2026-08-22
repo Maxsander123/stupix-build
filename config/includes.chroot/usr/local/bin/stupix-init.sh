@@ -1,7 +1,8 @@
 #!/bin/bash
 # =====================================================
 # Stupix Boot-Init Script
-# Clones the Stupix repo and runs auto.sh
+# Clones the Stupix script repo and runs auto.sh
+# All output is written to /var/log/stupix/init.log
 # =====================================================
 
 REPO="https://github.com/Maxsander123/stupix"
@@ -17,9 +18,9 @@ log() {
 }
 
 log "=== Stupix Init started ==="
-log "Log directory: $LOG_DIR"
+log "Log: $LOG"
 
-# Wait for network interface
+# Wait for network interface to come up
 log "Waiting for network interface..."
 for i in $(seq 1 30); do
     if ip addr show | grep -q "inet [0-9]" 2>/dev/null; then
@@ -30,7 +31,7 @@ for i in $(seq 1 30); do
 done
 
 # Wait for internet connectivity
-log "Waiting for internet connectivity (github.com)..."
+log "Waiting for internet connectivity..."
 for i in $(seq 1 20); do
     if curl -s --max-time 5 https://github.com > /dev/null 2>&1; then
         log "Internet reachable."
@@ -44,18 +45,18 @@ done
 log "Current IP addresses:"
 ip -4 addr show | grep "inet " | tee -a "$LOG"
 
-# Git clone
+# Clone the repo
 log "Cloning repository: $REPO"
 if git clone --depth=1 "$REPO" "$TARGET" >> "$LOG" 2>&1; then
     log "Repository cloned to $TARGET"
 else
-    log "ERROR: git clone failed. Check $LOG for details."
+    log "ERROR: git clone failed."
     exit 1
 fi
 
 # Run auto.sh
 if [ -f "$TARGET/auto.sh" ]; then
-    log "Running auto.sh..."
+    log "Running $TARGET/auto.sh..."
     chmod +x "$TARGET/auto.sh"
     bash "$TARGET/auto.sh"
     log "auto.sh finished."

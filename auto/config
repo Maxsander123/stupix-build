@@ -5,11 +5,11 @@ lb config noauto \
     --linux-flavours amd64 \
     --distribution bookworm \
     --binary-images iso-hybrid \
+    --bootstrap-flavour minimal \
     --bootappend-live "boot=live components hostname=stupix username=root noeject noprompt quiet net.ifnames=0 biosdevname=0" \
     --memtest none \
     --iso-application "Stupix Server Diagnostics" \
     --iso-volume "STUPIX" \
     --apt-recommends false \
-    --debootstrap-options "--variant=minbase" \
     --compression xz \
     "${@}"

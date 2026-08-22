@@ -7,13 +7,13 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install live-build dependencies
+      - name: Install live-build and dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -27,13 +27,27 @@ jobs:
             grub-efi-amd64-bin \
             mtools
 
-      - name: Build ISO
+      - name: Show live-build version
+        run: lb --version
+
+      - name: Run lb config
         run: |
           chmod +x auto/config auto/build auto/clean
           sudo ./auto/config
+
+      - name: Show generated lb config
+        run: cat .build/config 2>/dev/null || echo "No .build/config found"
+
+      - name: Build ISO
+        run: |
           sudo lb build 2>&1 | tee build.log
+          echo "Build exit code: $?"
+
+      - name: List output files
+        run: ls -lh *.iso *.log 2>/dev/null || echo "No ISO/log files found"
 
       - name: Upload ISO Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: stupix-live-iso
@@ -41,6 +55,7 @@ jobs:
           retention-days: 30
 
       - name: Upload Build Log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log

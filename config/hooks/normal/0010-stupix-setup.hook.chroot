@@ -1,26 +1,33 @@
 #!/bin/bash
+# =====================================================
+# Stupix post-install hook
+# Runs inside the chroot during lb build
+# =====================================================
+
 set -e
+
+echo "[hook] Starting Stupix setup hook..."
 
 # Set root password
 echo "root:stupix" | chpasswd
+echo "[hook] Root password set."
 
-# Allow SSH root login
-sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin without-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
-echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+# Enable SSH root login
+if [ -f /etc/ssh/sshd_config ]; then
+    sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    echo "[hook] SSH root login enabled."
+fi
 
-# Hostname
-echo "stupix" > /etc/hostname
-
-# Load IPMI modules on boot
+# Enable IPMI kernel modules at boot
 cat >> /etc/modules << 'MODULES'
 ipmi_si
 ipmi_devintf
 ipmi_msghandler
 MODULES
+echo "[hook] IPMI modules added to /etc/modules."
 
-# Network: DHCP on all ethernet interfaces
+# Enable and configure systemd-networkd for DHCP on all ethernet interfaces
 mkdir -p /etc/systemd/network
 cat > /etc/systemd/network/10-dhcp.network << 'NETCONF'
 [Match]
@@ -31,20 +38,47 @@ DHCP=yes
 NETCONF
 
 systemctl enable systemd-networkd 2>/dev/null || true
-systemctl enable networking 2>/dev/null || true
+systemctl enable systemd-resolved 2>/dev/null || true
+echo "[hook] systemd-networkd DHCP configured."
 
-# Create log directory
-mkdir -p /var/log/stupix
-chmod 755 /var/log/stupix
+# Enable SSH service
+systemctl enable ssh 2>/dev/null || true
+echo "[hook] SSH service enabled."
 
-# MOTD
+# Enable stupix-init service
+systemctl enable stupix-init.service 2>/dev/null || true
+echo "[hook] stupix-init.service enabled."
+
+# Set MOTD
 cat > /etc/motd << 'MOTD'
 
-  STUPIX - Server Diagnostics Live System
-  Debian Bookworm | RAM-only | IPMI/iDRAC ready
+============================================================
+ Stupix - Server Diagnostics Live System
+ Debian Bookworm | RAM-only | DHCP
+============================================================
+ Logs:    /var/log/stupix/
+ Scripts: /opt/stupix/
 
-  Log directory : /var/log/stupix/
-  Repo          : /opt/stupix/
-  Init log      : /var/log/stupix/init.log
+ IPMI commands:
+   ipmitool chassis status
+   ipmitool sdr list
+   ipmitool sel list
+   ipmitool fru print
+   ipmitool -I lanplus -H <BMC-IP> -U root -P <pass> chassis status
+
+ Hardware:
+   dmidecode -t system
+   lshw -short
+   smartctl -a /dev/sdX
+   nvme list
+
+ Network:
+   nmap -sn 192.168.x.0/24
+   tcpdump -i eth0
+   iperf3 -s
+============================================================
 
 MOTD
+echo "[hook] MOTD set."
+
+echo "[hook] Stupix setup hook complete."
