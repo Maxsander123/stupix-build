@@ -1,4 +1,2 @@
 #!/bin/sh
 set -e
-lb_build
-
