@@ -35,24 +35,25 @@ jobs:
 
       - name: Run lb config
         run: |
-          chmod +x auto/config auto/build auto/clean
+          chmod +x auto/config auto/clean
           sudo ./auto/config
 
       - name: Build ISO
         run: |
           sudo lb build 2>&1 | tee build.log
+          echo "Build exit code: ${PIPESTATUS[0]}"
 
       - name: Check ISO exists
         id: check_iso
         run: |
           if [ -f live-image-amd64.hybrid.iso ]; then
             echo "found=true" >> $GITHUB_OUTPUT
-            echo "ISO found, proceeding with release."
+            echo "ISO found:"
             ls -lh live-image-amd64.hybrid.iso
           else
             echo "found=false" >> $GITHUB_OUTPUT
-            echo "No ISO found. Build likely failed."
-            tail -50 build.log
+            echo "No ISO found. Last 100 lines of build log:"
+            tail -100 build.log
           fi
 
       - name: Rename ISO
@@ -105,4 +106,3 @@ jobs:
           name: build-log
           path: build.log
           retention-days: 7
-
