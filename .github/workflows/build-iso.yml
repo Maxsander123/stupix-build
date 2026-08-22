@@ -40,8 +40,8 @@ jobs:
 
       - name: Build ISO
         run: |
+          set -o pipefail
           sudo lb build 2>&1 | tee build.log
-          echo "Build exit code: ${PIPESTATUS[0]}"
 
       - name: Check ISO exists
         id: check_iso
