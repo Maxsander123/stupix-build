@@ -38,28 +38,35 @@ jobs:
           chmod +x auto/config auto/build auto/clean
           sudo ./auto/config
 
-      - name: Show generated lb config
-        run: cat .build/config 2>/dev/null || echo "No .build/config found"
-
       - name: Build ISO
         run: |
           sudo lb build 2>&1 | tee build.log
-          echo "Build exit code: $?"
 
-      - name: List output files
-        run: ls -lh *.iso *.log 2>/dev/null || echo "No ISO/log files found"
+      - name: Check ISO exists
+        id: check_iso
+        run: |
+          if [ -f live-image-amd64.hybrid.iso ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "ISO found, proceeding with release."
+            ls -lh live-image-amd64.hybrid.iso
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No ISO found. Build likely failed."
+            tail -50 build.log
+          fi
 
-      - name: Rename ISO with version tag
-        if: success()
+      - name: Rename ISO
+        if: steps.check_iso.outputs.found == 'true'
         run: |
           DATE=$(date +%Y%m%d)
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          mv live-image-amd64.hybrid.iso stupix-${DATE}-${SHORT_SHA}.iso
-          echo "ISO_NAME=stupix-${DATE}-${SHORT_SHA}.iso" >> $GITHUB_ENV
+          ISO_NAME="stupix-${DATE}-${SHORT_SHA}.iso"
+          mv live-image-amd64.hybrid.iso "$ISO_NAME"
+          echo "ISO_NAME=${ISO_NAME}" >> $GITHUB_ENV
           echo "RELEASE_TAG=build-${DATE}-${SHORT_SHA}" >> $GITHUB_ENV
 
       - name: Create GitHub Release
-        if: success()
+        if: steps.check_iso.outputs.found == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -84,7 +91,7 @@ jobs:
           prerelease: false
 
       - name: Upload ISO Artifact (fallback)
-        if: success()
+        if: steps.check_iso.outputs.found == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: stupix-live-iso
