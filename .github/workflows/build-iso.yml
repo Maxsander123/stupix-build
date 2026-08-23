@@ -21,6 +21,11 @@ jobs:
       - name: 🔧 Install live-build & dependencies
         run: |
           sudo apt-get update -y
+
+          # Ubuntu live-build KOMPLETT entfernen (setzt casper als INITRAMFS - inkompatibel mit Debian live-build)
+          sudo apt-get remove --purge -y live-build 2>/dev/null || true
+
+          # Abhängigkeiten installieren
           sudo apt-get install -y \
             debootstrap \
             xorriso \
@@ -37,13 +42,11 @@ jobs:
             gnupg2 \
             apt-utils
 
-          # Neueren live-build direkt von Debian holen (Ubuntu-Version hat Bookworm-Bugs)
-          wget -q https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb -O /tmp/live-build.deb || \
-          wget -q http://ftp.de.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb -O /tmp/live-build.deb
-          sudo dpkg -i /tmp/live-build.deb || sudo apt-get install -f -y
+          # Debian live-build installieren (kompatibel mit Bookworm, kennt live-boot statt casper)
+          wget -q "https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb" -O /tmp/live-build.deb
+          sudo dpkg -i /tmp/live-build.deb
 
-          echo "live-build version:"
-          lb --version
+          echo "live-build version: $(lb --version)"
 
       - name: ⚙️ Configure live-build
         run: sudo lb config
@@ -52,6 +55,7 @@ jobs:
         run: sudo lb build 2>&1 | tee build.log
 
       - name: 📦 Upload ISO Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: stupix-iso
