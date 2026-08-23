@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -22,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Ubuntu live-build KOMPLETT entfernen (setzt casper als INITRAMFS - inkompatibel mit Debian live-build)
+          # Ubuntu live-build KOMPLETT entfernen
           sudo apt-get remove --purge -y live-build 2>/dev/null || true
 
           # Abhängigkeiten installieren
@@ -42,7 +45,7 @@ jobs:
             gnupg2 \
             apt-utils
 
-          # Debian live-build installieren (kompatibel mit Bookworm, kennt live-boot statt casper)
+          # Debian live-build installieren
           wget -q "https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb" -O /tmp/live-build.deb
           sudo dpkg -i /tmp/live-build.deb
 
@@ -54,14 +57,6 @@ jobs:
       - name: 🏗️ Build ISO
         run: sudo lb build 2>&1 | tee build.log
 
-      - name: 📦 Upload ISO Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stupix-iso
-          path: "*.iso"
-          retention-days: 7
-
       - name: 📋 Upload Build Log (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -70,3 +65,34 @@ jobs:
           path: build.log
           retention-days: 3
 
+      - name: 🏷️ Generate Release Tag
+        if: success()
+        id: tag
+        run: |
+          TAG="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TAG"
+
+      - name: 🚀 Create GitHub Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## 🖥️ Stupix Linux ISO
+
+            Automatisch gebautes ISO aus Commit `${{ github.sha }}`.
+
+            ### 📥 Download
+            Lade die `.iso` Datei unten herunter und boote sie direkt (USB/VM).
+
+            ### ℹ️ Build-Info
+            - **Branch:** `${{ github.ref_name }}`
+            - **Commit:** `${{ github.sha }}`
+            - **Gebaut am:** `${{ github.event.head_commit.timestamp }}`
+          files: "*.iso"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
