@@ -1,22 +1,19 @@
-#!/bin/sh
+#!/bin/bash
+
 set -e
+
 lb config noauto \
-    --mode debian \
     --architectures amd64 \
-    --linux-flavours amd64 \
     --distribution bookworm \
-    --mirror-bootstrap "https://deb.debian.org/debian" \
-    --mirror-chroot "https://deb.debian.org/debian" \
-    --mirror-chroot-security "https://security.debian.org/debian-security" \
-    --mirror-binary "https://deb.debian.org/debian" \
-    --mirror-binary-security "https://security.debian.org/debian-security" \
-    --security false \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --debian-installer none \
+    --bootappend-live "boot=live components quiet splash" \
     --binary-images iso-hybrid \
-    --bootstrap-flavour minimal \
-    --bootappend-live "boot=live components hostname=stupix username=root noeject noprompt quiet net.ifnames=0 biosdevname=0" \
-    --memtest none \
-    --iso-application "Stupix Server Diagnostics" \
-    --iso-volume "STUPIX" \
+    --iso-publisher "Stupix Project" \
+    --iso-volume "Stupix Live" \
     --apt-recommends false \
-    --compression xz \
+    --firmware-chroot true \
+    --firmware-binary true \
+    --memtest none \
+    --checksums sha256 \
     "${@}"
