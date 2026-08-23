@@ -7,6 +7,7 @@ lb config noauto \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
     --debian-installer none \
+    --initramfs live-boot \
     --bootappend-live "boot=live components quiet splash" \
     --binary-images iso-hybrid \
     --iso-publisher "Stupix Project" \
@@ -16,7 +17,5 @@ lb config noauto \
     --firmware-binary true \
     --memtest none \
     --checksums sha256 \
-    --linux-packages "linux-image linux-headers" \
-    --linux-flavours amd64 \
     "${@}"
 
