@@ -9,55 +9,37 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 60
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
 
     steps:
-      - name: 📥 Repository auschecken
+      - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🔧 System vorbereiten & live-build installieren
+      - name: 🔧 Install live-build & dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
             live-build \
             debootstrap \
-            squashfs-tools \
             xorriso \
             isolinux \
             syslinux-common \
-            grub-pc-bin \
-            grub-efi-amd64-bin \
-            mtools \
-            dosfstools \
-            curl \
+            squashfs-tools \
             wget \
-            git
+            curl
 
-      - name: 🛠️ auto/config ausführbar machen
-        run: |
-          chmod +x auto/config
-          if [ -f auto/clean ]; then chmod +x auto/clean; fi
-          if [ -f auto/build ]; then chmod +x auto/build; fi
+      - name: ⚙️ Configure live-build
+        run: sudo lb config
 
-      - name: ⚙️ live-build konfigurieren
-        run: |
-          sudo lb config
+      - name: 🏗️ Build ISO
+        run: sudo lb build
 
-      - name: 🏗️ ISO bauen
-        run: |
-          sudo lb build
-        env:
-          DEBIAN_FRONTEND: noninteractive
-
-      - name: 🔍 ISO-Datei finden
-        run: |
-          ls -lah *.iso 2>/dev/null || echo "Keine ISO im Root"
-          find . -name "*.iso" -not -path "./.git/*" | head -20
-
-      - name: 📦 ISO als Artifact hochladen
+      - name: 📦 Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
           name: stupix-iso
           path: "*.iso"
           retention-days: 7
-          if-no-files-found: warn
