@@ -2,23 +2,22 @@ name: Build Stupix ISO
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
 
     steps:
-      - name: Checkout
+      - name: 📥 Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Install live-build and dependencies
+      - name: 🔧 System vorbereiten & live-build installieren
         run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y \
             live-build \
             debootstrap \
@@ -28,81 +27,37 @@ jobs:
             syslinux-common \
             grub-pc-bin \
             grub-efi-amd64-bin \
-            mtools
+            mtools \
+            dosfstools \
+            curl \
+            wget \
+            git
 
-      - name: Show live-build version
-        run: lb --version
-
-      - name: Run lb config
+      - name: 🛠️ auto/config ausführbar machen
         run: |
-          chmod +x auto/config auto/clean
-          sudo ./auto/config
+          chmod +x auto/config
+          if [ -f auto/clean ]; then chmod +x auto/clean; fi
+          if [ -f auto/build ]; then chmod +x auto/build; fi
 
-      - name: Build ISO
+      - name: ⚙️ live-build konfigurieren
         run: |
-          set -o pipefail
-          sudo lb build 2>&1 | tee build.log
+          sudo lb config
 
-      - name: Check ISO exists
-        id: check_iso
+      - name: 🏗️ ISO bauen
         run: |
-          if [ -f live-image-amd64.hybrid.iso ]; then
-            echo "found=true" >> $GITHUB_OUTPUT
-            echo "ISO found:"
-            ls -lh live-image-amd64.hybrid.iso
-          else
-            echo "found=false" >> $GITHUB_OUTPUT
-            echo "No ISO found. Last 100 lines of build log:"
-            tail -100 build.log
-          fi
+          sudo lb build
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
-      - name: Rename ISO
-        if: steps.check_iso.outputs.found == 'true'
+      - name: 🔍 ISO-Datei finden
         run: |
-          DATE=$(date +%Y%m%d)
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          ISO_NAME="stupix-${DATE}-${SHORT_SHA}.iso"
-          mv live-image-amd64.hybrid.iso "$ISO_NAME"
-          echo "ISO_NAME=${ISO_NAME}" >> $GITHUB_ENV
-          echo "RELEASE_TAG=build-${DATE}-${SHORT_SHA}" >> $GITHUB_ENV
+          ls -lah *.iso 2>/dev/null || echo "Keine ISO im Root"
+          find . -name "*.iso" -not -path "./.git/*" | head -20
 
-      - name: Create GitHub Release
-        if: steps.check_iso.outputs.found == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: "Stupix ${{ env.RELEASE_TAG }}"
-          body: |
-            Stupix Live System - Automated Build
-
-            Build date: ${{ env.RELEASE_TAG }}
-            Commit: ${{ github.sha }}
-
-            Boot from USB or via virtual media (iDRAC, iLO, IPMI).
-
-            After boot the system will:
-            - Obtain an IP via DHCP
-            - Clone https://github.com/Maxsander123/stupix to /opt/stupix
-            - Execute /opt/stupix/auto.sh
-            - Write all diagnostic output to /var/log/stupix/
-
-            Default SSH login: root / stupix
-          files: ${{ env.ISO_NAME }}
-          draft: false
-          prerelease: false
-
-      - name: Upload ISO Artifact (fallback)
-        if: steps.check_iso.outputs.found == 'true'
+      - name: 📦 ISO als Artifact hochladen
         uses: actions/upload-artifact@v4
         with:
-          name: stupix-live-iso
+          name: stupix-iso
           path: "*.iso"
-          retention-days: 30
-
-      - name: Upload Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: build.log
           retention-days: 7
+          if-no-files-found: warn
