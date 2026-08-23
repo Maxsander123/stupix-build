@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -22,20 +22,34 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
-            live-build \
             debootstrap \
             xorriso \
             isolinux \
             syslinux-common \
             squashfs-tools \
             wget \
-            curl
+            curl \
+            rsync \
+            cpio \
+            gzip \
+            bzip2 \
+            xz-utils \
+            gnupg2 \
+            apt-utils
+
+          # Neueren live-build direkt von Debian holen (Ubuntu-Version hat Bookworm-Bugs)
+          wget -q https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb -O /tmp/live-build.deb || \
+          wget -q http://ftp.de.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb -O /tmp/live-build.deb
+          sudo dpkg -i /tmp/live-build.deb || sudo apt-get install -f -y
+
+          echo "live-build version:"
+          lb --version
 
       - name: ⚙️ Configure live-build
         run: sudo lb config
 
       - name: 🏗️ Build ISO
-        run: sudo lb build
+        run: sudo lb build 2>&1 | tee build.log
 
       - name: 📦 Upload ISO Artifact
         uses: actions/upload-artifact@v4
@@ -43,3 +57,12 @@ jobs:
           name: stupix-iso
           path: "*.iso"
           retention-days: 7
+
+      - name: 📋 Upload Build Log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 3
+
