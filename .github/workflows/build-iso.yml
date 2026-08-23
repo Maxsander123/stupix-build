@@ -1,0 +1,109 @@
+name: Build Stupix ISO
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🔧 Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get remove --purge -y live-build 2>/dev/null || true
+
+          # Debian Bookworm Keyring direkt installieren
+          wget -q "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb" \
+            -O /tmp/debian-archive-keyring.deb
+          sudo dpkg -i /tmp/debian-archive-keyring.deb || true
+          sudo apt-get install -f -y
+
+          sudo apt-get install -y \
+            debootstrap \
+            xorriso \
+            isolinux \
+            syslinux-common \
+            squashfs-tools \
+            wget curl rsync cpio gzip bzip2 xz-utils gnupg2
+
+          # Neueren live-build von Debian holen
+          wget -q "https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb" \
+            -O /tmp/live-build.deb
+          sudo dpkg -i /tmp/live-build.deb
+          echo "live-build version: $(lb --version)"
+
+          # Prüfen ob Keyring vorhanden
+          ls -lh /usr/share/keyrings/debian-archive-keyring.gpg
+          echo "Keyring vorhanden ✅"
+
+      - name: ⚙️ Configure live-build
+        run: sudo lb config
+
+      - name: 🏗️ Build ISO
+        run: |
+          sudo lb build 2>&1 | tee build.log
+          echo "=== Suche ISO ==="
+          find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
+
+      - name: 📤 Upload Build Log (immer)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 5
+          if-no-files-found: warn
+
+      - name: 🔍 Find ISO
+        id: find_iso
+        run: |
+          ISO_PATH=$(find /home/runner/work -name "*.iso" -type f 2>/dev/null | head -1)
+          if [ -z "$ISO_PATH" ]; then
+            echo "❌ Keine ISO gefunden!"
+            ls -lah
+            exit 1
+          fi
+          echo "✅ ISO gefunden: $ISO_PATH"
+          ls -lh "$ISO_PATH"
+          DEST="${GITHUB_WORKSPACE}/stupix-linux.iso"
+          sudo cp "$ISO_PATH" "$DEST"
+          sudo chmod 644 "$DEST"
+          echo "iso_path=$DEST" >> $GITHUB_OUTPUT
+          ls -lh "$DEST"
+
+      - name: 🏷️ Generate Release Tag
+        id: tag
+        run: |
+          TAG="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG"
+
+      - name: 🚀 Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
+          body: |
+            ## 🐧 Stupix Linux ISO
+            Automatisch gebaut aus Commit `${{ github.sha }}`
+            - **Branch:** ${{ github.ref_name }}
+            - **Gebaut am:** ${{ github.event.head_commit.timestamp }}
+          files: ${{ steps.find_iso.outputs.iso_path }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
