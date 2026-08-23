@@ -17,5 +17,5 @@ lb config noauto \
     --firmware-binary true \
     --memtest none \
     --checksums sha256 \
+    --debootstrap-options "--no-check-gpg" \
     "${@}"
-
