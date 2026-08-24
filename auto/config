@@ -15,6 +15,6 @@ lb config noauto \
     --apt-recommends false \
     --initsystem systemd \
     --keyring-packages debian-archive-keyring \
-    --linux-packages "linux-image" \
-    --linux-flavours "amd64" \
+    --linux-packages linux-image \
+    --linux-flavours amd64 \
     "${@}"
