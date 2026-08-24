@@ -9,7 +9,7 @@ lb config noauto \
     --initramfs live-boot \
     --bootappend-live "boot=live components quiet splash" \
     --binary-images iso-hybrid \
-    --bootloaders syslinux,grub-efi \
+    --bootloader syslinux \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
