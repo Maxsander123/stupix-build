@@ -17,5 +17,4 @@ lb config noauto \
     --linux-flavours "" \
     --initsystem systemd \
     --keyring-packages debian-archive-keyring \
-    --debootstrap-options "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg" \
     "${@}"
