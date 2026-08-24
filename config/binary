@@ -26,7 +26,11 @@ LB_BOOTAPPEND_FAILSAFE="memtest noapic noapm nodma nomce nolapic nomodeset nosmp
 
 # $LB_BOOTLOADER: set bootloader
 # (Default: syslinux)
-LB_BOOTLOADER="syslinux"
+# NOTE: Must be grub-pc to work on Ubuntu 22.04 build hosts.
+# syslinux requires isolinux files at /root/isolinux/ inside binary.chroot/
+# which is not available on Ubuntu 22.04 (paths differ from Debian).
+# auto/config also sets --bootloader grub-pc — keep both in sync.
+LB_BOOTLOADER="grub-pc"
 
 # $LB_CHECKSUMS: set checksums
 # (Default: sha256)
