@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive — run directly on the Ubuntu host so that
+    # No container: directive – run directly on the Ubuntu host so that
     # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
     # Docker containers lack the SYS_ADMIN capability needed for those mounts.
     timeout-minutes: 90
@@ -34,6 +34,8 @@ jobs:
             debian-archive-keyring \
             debootstrap \
             xorriso \
+            isolinux \
+            syslinux-common \
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
             sudo \
@@ -87,15 +89,63 @@ jobs:
 
       - name: ⚙️ Configure live-build
         run: |
-          # Wipe any stale config/ tree from previous runs so that the bootloader
-          # setting from auto/config (grub2) is always the authoritative one.
-          sudo lb clean --all || true
-
           # auto/config contains all configuration parameters.
           # Call lb config WITHOUT extra arguments so auto/config takes over.
           # lb requires root (lb_testroot), so use sudo.
           sudo lb config
           echo "lb config ✅"
+
+      - name: 🔧 Fix isolinux paths for Ubuntu host
+        run: |
+          # Ubuntu 22.04's isolinux package installs files to /usr/lib/ISOLINUX/
+          # but live-build's syslinux binary stage expects them at /root/isolinux/
+          # AND also tries to copy them into binary/isolinux/ from /root/isolinux/.
+          # We pre-populate /root/isolinux/ here so the binary stage succeeds.
+          set -euo pipefail
+
+          ISOLINUX_SRC="/usr/lib/ISOLINUX"
+          SYSLINUX_SRC="/usr/lib/syslinux/modules/bios"
+          TARGET="/root/isolinux"
+
+          sudo mkdir -p "${TARGET}"
+
+          # Copy isolinux.bin
+          if [ -f "${ISOLINUX_SRC}/isolinux.bin" ]; then
+            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${TARGET}/isolinux.bin"
+            echo "✅ Copied isolinux.bin from ${ISOLINUX_SRC}"
+          else
+            echo "❌ isolinux.bin not found in ${ISOLINUX_SRC}"
+            find /usr -name "isolinux.bin" 2>/dev/null || true
+            exit 1
+          fi
+
+          # Copy vesamenu.c32
+          if [ -f "${SYSLINUX_SRC}/vesamenu.c32" ]; then
+            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32 from ${SYSLINUX_SRC}"
+          elif [ -f "/usr/lib/syslinux/vesamenu.c32" ]; then
+            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32 from /usr/lib/syslinux/"
+          else
+            echo "❌ vesamenu.c32 not found"
+            find /usr -name "vesamenu.c32" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "✅ /root/isolinux contents:"
+          sudo ls -lh "${TARGET}"
+
+          # Also pre-create binary/isolinux so lb_binary_syslinux can copy into it
+          # live-build will create binary/isolinux itself during the binary stage,
+          # but we need /root/isolinux to be populated (done above).
+          # Additionally copy all syslinux .c32 modules live-build may need:
+          for f in "${SYSLINUX_SRC}"/*.c32; do
+            [ -f "$f" ] || continue
+            sudo cp "$f" "${TARGET}/"
+            echo "✅ Copied $(basename $f)"
+          done
+          echo "✅ Final /root/isolinux contents:"
+          sudo ls -lh "${TARGET}"
 
       - name: 🏗️ Build ISO
         run: |
