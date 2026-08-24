@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive — run directly on the Ubuntu host so that
+    # No container: directive – run directly on the Ubuntu host so that
     # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
     # Docker containers lack the SYS_ADMIN capability needed for those mounts.
     timeout-minutes: 90
@@ -35,19 +35,15 @@ jobs:
             debootstrap \
             xorriso \
             isolinux \
-            syslinux \
             syslinux-common \
             syslinux-utils \
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
-            grub-pc-bin \
-            grub-efi-amd64-bin \
             sudo \
             bash
 
           echo "live-build version: $(lb --version)"
-          # Verify isohybrid is now available on the host
-          which isohybrid && echo "isohybrid: OK" || echo "WARNING: isohybrid not found"
+          echo "isohybrid location: $(which isohybrid || echo 'NOT FOUND')"
 
       - name: 🔑 Fetch up-to-date Debian Bookworm keyring
         run: |
