@@ -6,7 +6,6 @@ lb config noauto \
     --architectures amd64 \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
-    --debian-installer false \
     --initramfs live-boot \
     --bootappend-live "boot=live components quiet splash" \
     --binary-images iso-hybrid \
