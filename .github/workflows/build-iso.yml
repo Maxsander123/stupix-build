@@ -98,32 +98,34 @@ jobs:
       - name: 🔧 Fix isolinux paths for Ubuntu host
         run: |
           # Ubuntu 22.04's isolinux package installs files to /usr/lib/ISOLINUX/
-          # but live-build's syslinux stage expects them at /root/isolinux/.
-          # Create the directory and symlink/copy the required files.
+          # but live-build's binary_syslinux stage looks for them in two places:
+          #   1. /root/isolinux/ on the HOST (used directly by lb binary_syslinux)
+          #   2. chroot/root/isolinux/ which gets copied to binary.chroot/root/isolinux/
+          #
+          # We populate BOTH locations so the build always finds them.
           set -euo pipefail
 
           ISOLINUX_SRC="/usr/lib/ISOLINUX"
           SYSLINUX_SRC="/usr/lib/syslinux/modules/bios"
-          TARGET="/root/isolinux"
 
-          sudo mkdir -p "${TARGET}"
+          # ── 1. Host-level /root/isolinux/ ─────────────────────────────────────
+          HOST_TARGET="/root/isolinux"
+          sudo mkdir -p "${HOST_TARGET}"
 
-          # Copy isolinux.bin
           if [ -f "${ISOLINUX_SRC}/isolinux.bin" ]; then
-            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${TARGET}/isolinux.bin"
-            echo "✅ Copied isolinux.bin from ${ISOLINUX_SRC}"
+            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${HOST_TARGET}/isolinux.bin"
+            echo "✅ Copied isolinux.bin  → ${HOST_TARGET}/"
           else
             echo "❌ isolinux.bin not found in ${ISOLINUX_SRC}"
             find /usr -name "isolinux.bin" 2>/dev/null || true
             exit 1
           fi
 
-          # Copy vesamenu.c32
           if [ -f "${SYSLINUX_SRC}/vesamenu.c32" ]; then
-            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${TARGET}/vesamenu.c32"
-            echo "✅ Copied vesamenu.c32 from ${SYSLINUX_SRC}"
+            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32  → ${HOST_TARGET}/"
           elif [ -f "/usr/lib/syslinux/vesamenu.c32" ]; then
-            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
             echo "✅ Copied vesamenu.c32 from /usr/lib/syslinux/"
           else
             echo "❌ vesamenu.c32 not found"
@@ -131,8 +133,21 @@ jobs:
             exit 1
           fi
 
-          echo "✅ /root/isolinux contents:"
-          sudo ls -lh "${TARGET}"
+          echo "✅ ${HOST_TARGET} contents:"
+          sudo ls -lh "${HOST_TARGET}"
+
+          # ── 2. Chroot-level chroot/root/isolinux/ ─────────────────────────────
+          # lb bootstrap creates chroot/ during lb build, so we pre-create it here
+          # using sudo (build runs as root). lb binary_chroot copies chroot/ to
+          # binary.chroot/ and then runs lb_binary_syslinux inside that copy;
+          # the script does: cp /root/isolinux/... which resolves relative to the
+          # chroot root — i.e. binary.chroot/root/isolinux/.
+          CHROOT_TARGET="chroot/root/isolinux"
+          sudo mkdir -p "${CHROOT_TARGET}"
+          sudo cp "${HOST_TARGET}/isolinux.bin" "${CHROOT_TARGET}/isolinux.bin"
+          sudo cp "${HOST_TARGET}/vesamenu.c32"  "${CHROOT_TARGET}/vesamenu.c32"
+          echo "✅ ${CHROOT_TARGET} contents:"
+          sudo ls -lh "${CHROOT_TARGET}"
 
       - name: 🏗️ Build ISO
         run: |
