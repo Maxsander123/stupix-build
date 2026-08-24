@@ -39,9 +39,9 @@ LB_BOOTSTRAP="debootstrap"
 # (Default: true)
 LB_CACHE="true"
 
-# $LB_CACHE_INDICES: control if downloaded package indices should be cached
+# $LB_CACHE_INDEXES: control if downloaded package indices should be cached
 # (Default: false)
-LB_CACHE_INDICES="false"
+LB_CACHE_INDEXES="false"
 
 # $LB_CACHE_PACKAGES: control if downloaded packages files should be cached
 # (Default: true)
@@ -73,7 +73,9 @@ LB_INITRAMFS_COMPRESSION=""
 
 # $LB_INITSYSTEM: set init system
 # (Default: sysvinit)
-LB_INITSYSTEM="sysvinit"
+# Changed to systemd to match --live-config-backend systemd in auto/config
+# and avoid conflict between live-config-systemd and live-config-sysvinit
+LB_INITSYSTEM="systemd"
 
 # $LB_FDISK: set fdisk program
 # (Default: autodetected)
@@ -138,4 +140,4 @@ APT_OPTIONS="--yes"
 APTITUDE_OPTIONS="--assume-yes"
 GZIP_OPTIONS="-6 --rsyncable"
 ISOHYBRID_OPTIONS=""
-GENISOIMAGE_OPTIONS_EXTRA=""
+GENISOIMAGES_OPTIONS_EXTRA=""
