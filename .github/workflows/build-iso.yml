@@ -55,8 +55,26 @@ jobs:
                    --import
           fi
 
-          # Install live-build from Ubuntu repository
-          sudo apt-get install -y live-build
+          # Install live-build from the Debian Bookworm repository
+          # (the Ubuntu-packaged version has a bug: it tries to fetch
+          #  Contents-amd64.gz which returns 404 on Debian mirrors)
+          echo "Adding Debian Bookworm repo to install live-build..."
+          echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
+            | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
+
+          # Pin so only live-build (and its deps) come from Debian
+          cat <<'EOF' | sudo tee /etc/apt/preferences.d/debian-bookworm
+Package: *
+Pin: release o=Debian,n=bookworm
+Pin-Priority: 100
+
+Package: live-build
+Pin: release o=Debian,n=bookworm
+Pin-Priority: 900
+EOF
+
+          sudo apt-get update -y
+          sudo apt-get install -y -t bookworm live-build
 
           echo "live-build version: $(lb --version)"
 
