@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive – run directly on the Ubuntu host so that
+    # No container: directive — run directly on the Ubuntu host so that
     # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
     # Docker containers lack the SYS_ADMIN capability needed for those mounts.
     timeout-minutes: 90
@@ -42,6 +42,17 @@ jobs:
             bash
 
           echo "live-build version: $(lb --version)"
+
+      - name: 🔑 Update Debian Archive Keyring
+        run: |
+          # The Ubuntu-shipped debian-archive-keyring is outdated and missing
+          # key F8D2585B8783D481 (Debian Bookworm/Trixie signing key).
+          # Download the current keyring directly from Debian.
+          KEYRING_DEB_URL="https://ftp.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u1_all.deb"
+          wget -q -O /tmp/debian-archive-keyring.deb "${KEYRING_DEB_URL}"
+          sudo dpkg -i /tmp/debian-archive-keyring.deb
+          echo "Installed Debian archive keyring:"
+          gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --list-keys 2>/dev/null | grep -E "^pub|F8D2" || true
 
       - name: ⚙️ Configure live-build
         run: |
