@@ -12,79 +12,45 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: debian:bookworm
     timeout-minutes: 90
 
     env:
       DEBIAN_FRONTEND: noninteractive
 
     steps:
+      - name: 📥 Install git for checkout
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
       - name: 🔧 Install dependencies
         run: |
-          sudo apt-get update -y
+          apt-get update -y
 
-          # Install base packages from Ubuntu
-          sudo apt-get install -y \
+          # Install live-build and all required tools natively on Debian Bookworm
+          apt-get install -y --no-install-recommends \
+            live-build \
             debian-archive-keyring \
             debootstrap \
             xorriso \
             isolinux \
             syslinux-common \
             squashfs-tools \
-            wget curl rsync cpio gzip bzip2 xz-utils gnupg2
-
-          # Import Debian Bookworm signing key into the system keyring
-          echo "Importing Debian Bookworm signing key..."
-          sudo mkdir -p /usr/share/keyrings
-          wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
-            sudo gpg --no-default-keyring \
-                 --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-                 --import || true
-          wget -qO- https://ftp-master.debian.org/keys/archive-key-12-security.asc | \
-            sudo gpg --no-default-keyring \
-                 --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-                 --import || true
-
-          # Add Debian Bookworm repository
-          echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
-            | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
-
-          # Pin configuration:
-          # - ALL Debian packages get priority -1 (never install/upgrade from Debian)
-          # - ONLY live-build gets priority 990 (prefer Debian version over Ubuntu)
-          # This prevents Debian's libc6/glibc/libgnutls etc. from overwriting Ubuntu's versions.
-          sudo tee /etc/apt/preferences.d/debian-bookworm > /dev/null << 'EOF'
-Package: *
-Pin: release o=Debian,n=bookworm
-Pin-Priority: -1
-
-Package: live-build
-Pin: release o=Debian,n=bookworm
-Pin-Priority: 990
-EOF
-
-          sudo apt-get update -y
-
-          # Install live-build from Debian Bookworm with --no-install-recommends
-          # to avoid pulling in Debian system libraries that conflict with Ubuntu
-          sudo apt-get install -y --no-install-recommends -t bookworm live-build
+            wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
+            sudo
 
           echo "live-build version: $(lb --version)"
-
-          # Verify keyring
-          echo "=== Keyring keys ==="
-          sudo gpg --no-default-keyring \
-               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-               --list-keys 2>/dev/null | grep -E "^pub|F8D2585B8783D481" || true
-          echo "Setup complete ✅"
 
       - name: ⚙️ Configure live-build
         run: |
           # auto/config contains all configuration parameters.
           # Call lb config WITHOUT extra arguments so auto/config takes over.
-          sudo lb config
+          lb config
           echo "lb config ✅"
 
       - name: 🏗️ Build ISO
@@ -92,7 +58,7 @@ EOF
           # WICHTIG: pipefail aktivieren!
           # Ohne pipefail maskiert `tee` den Exit-Code von `lb build`.
           set -o pipefail
-          sudo lb build 2>&1 | tee build.log
+          lb build 2>&1 | tee build.log
           echo "=== Suche ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
 
@@ -123,15 +89,15 @@ EOF
             echo "❌ Keine ISO gefunden!"
             echo "=== Verzeichnisinhalt ==="
             ls -lah
-            echo "=== Suche nach .iso in gesamt /home/runner ==="
-            find /home/runner -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
+            echo "=== Suche nach .iso in gesamt /root ==="
+            find /root -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
             exit 1
           fi
           echo "✅ ISO gefunden: $ISO_PATH"
           ls -lh "$ISO_PATH"
           DEST="${GITHUB_WORKSPACE}/stupix-linux.iso"
-          sudo cp "$ISO_PATH" "$DEST"
-          sudo chmod 644 "$DEST"
+          cp "$ISO_PATH" "$DEST"
+          chmod 644 "$DEST"
           if [ ! -f "$DEST" ]; then
             echo "❌ Kopieren der ISO fehlgeschlagen!"
             exit 1
