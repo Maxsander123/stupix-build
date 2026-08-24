@@ -132,7 +132,7 @@ jobs:
           fi
 
           echo "✅ /root/isolinux contents:"
-          ls -lh "${TARGET}"
+          sudo ls -lh "${TARGET}"
 
       - name: 🏗️ Build ISO
         run: |
