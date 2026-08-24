@@ -5,8 +5,9 @@
 LB_CHROOT_FILESYSTEM="squashfs"
 
 # $LB_UNION_FILESYSTEM: set union filesystem
-# (Default: aufs)
-LB_UNION_FILESYSTEM="aufs"
+# NOTE: aufs is NOT available on Ubuntu 22.04 kernels (GitHub Actions runner).
+# Use overlay (overlayfs) which is supported on all modern kernels.
+LB_UNION_FILESYSTEM="overlay"
 
 # $LB_EXPOSED_ROOT: expose root as read only
 # (Default: false)
