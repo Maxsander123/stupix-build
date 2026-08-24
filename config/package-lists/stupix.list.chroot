@@ -1,6 +1,6 @@
 # Live-Boot base
 live-boot
-live-config
+live-config-systemd
 
 # Network / DHCP
 isc-dhcp-client
