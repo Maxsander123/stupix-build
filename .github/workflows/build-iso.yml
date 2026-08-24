@@ -43,16 +43,35 @@ jobs:
 
           echo "live-build version: $(lb --version)"
 
-      - name: 🔑 Update Debian Archive Keyring
+      - name: 🔑 Fetch up-to-date Debian Bookworm keyring
         run: |
-          # The Ubuntu-shipped debian-archive-keyring is outdated and missing
-          # key F8D2585B8783D481 (Debian Bookworm/Trixie signing key).
-          # Download the current keyring directly from Debian.
+          # The debian-archive-keyring shipped with Ubuntu 22.04 is outdated and
+          # does NOT contain the current Debian 12 Bookworm key (F8D2585B8783D481).
+          # Download the official Debian keyring package directly from Debian's mirror
+          # and install it so debootstrap can verify the Bookworm Release signature.
+          set -euo pipefail
+
           KEYRING_DEB_URL="https://ftp.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u1_all.deb"
-          wget -q -O /tmp/debian-archive-keyring.deb "${KEYRING_DEB_URL}"
-          sudo dpkg -i /tmp/debian-archive-keyring.deb
-          echo "Installed Debian archive keyring:"
-          gpg --no-default-keyring --keyring /usr/share/keyrings/debian-archive-keyring.gpg --list-keys 2>/dev/null | grep -E "^pub|F8D2" || true
+          KEYRING_DEB="/tmp/debian-archive-keyring.deb"
+
+          echo "Downloading Debian archive keyring from Debian..."
+          wget -q -O "$KEYRING_DEB" "$KEYRING_DEB_URL"
+
+          echo "Installing keyring package..."
+          sudo dpkg -i "$KEYRING_DEB"
+
+          echo "Verifying key F8D2585B8783D481 is present..."
+          gpg --no-default-keyring \
+              --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+              --list-keys F8D2585B8783D481 \
+            && echo "✅ Bookworm key found in keyring" \
+            || { echo "❌ Key still missing – falling back to manual import"; \
+                 curl -fsSL "https://ftp-master.debian.org/keys/release-12.asc" \
+                   | gpg --dearmor \
+                   | sudo tee -a /usr/share/keyrings/debian-archive-keyring.gpg > /dev/null; \
+                 gpg --no-default-keyring \
+                     --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+                     --list-keys F8D2585B8783D481 && echo "✅ Key imported manually"; }
 
       - name: ⚙️ Configure live-build
         run: |
