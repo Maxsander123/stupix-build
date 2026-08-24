@@ -24,15 +24,12 @@ LB_INTERACTIVE="false"
 # (Default: empty)
 LB_KEYRING_PACKAGES="debian-archive-keyring"
 
-# $LB_LINUX_FLAVOURS: must be empty so live-build does NOT fetch Contents-amd64.gz
-# When LB_LINUX_PACKAGES is set to a full package name (linux-image-amd64),
-# live-build does not need to resolve a flavour and skips the Contents lookup.
+# $LB_LINUX_FLAVOURS: empty so lb_chroot_linux-image does NOT fetch Contents-amd64.gz
 LB_LINUX_FLAVOURS=""
 
-# $LB_LINUX_PACKAGES: use the exact metapackage name to avoid Contents-amd64.gz 404
-# (live-build tries to download Contents-amd64.gz when this is "linux-image"
-#  to resolve the flavour suffix — that URL returns 404 on Debian mirrors)
-LB_LINUX_PACKAGES="linux-image-amd64"
+# $LB_LINUX_PACKAGES: empty string so lb_chroot_linux-image is skipped entirely.
+# The kernel is installed via config/package-lists/kernel.list.chroot instead.
+LB_LINUX_PACKAGES=""
 
 # $LB_SECURITY: enable security updates
 # (Default: false)
