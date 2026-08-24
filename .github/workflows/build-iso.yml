@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Install base packages
+          # Install base packages (but NOT live-build from Ubuntu — it has a bug with Contents-amd64.gz)
           sudo apt-get install -y \
             debian-archive-keyring \
             debootstrap \
@@ -35,30 +35,26 @@ jobs:
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2
 
-          # The Ubuntu-packaged debian-archive-keyring is outdated and missing
-          # the Debian Bookworm signing key F8D2585B8783D481.
-          # Fetch it directly from ftp-master.debian.org
+          # Import Debian Bookworm signing key into the system keyring
           echo "Importing Debian Bookworm signing key..."
+          sudo mkdir -p /usr/share/keyrings
           wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
             sudo gpg --no-default-keyring \
                  --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
                  --import || true
+          wget -qO- https://ftp-master.debian.org/keys/archive-key-12-security.asc | \
+            sudo gpg --no-default-keyring \
+                 --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+                 --import || true
 
-          # Add Debian Bookworm repo to install live-build from there
-          echo "Adding Debian Bookworm repo to install live-build..."
+          # Add Debian Bookworm repository
           echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
             | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
 
-          # Pin so only live-build (and its deps) come from Debian
-          cat <<'EOF' | sudo tee /etc/apt/preferences.d/debian-bookworm
-Package: *
-Pin: release o=Debian,n=bookworm
-Pin-Priority: 100
-
-Package: live-build
-Pin: release o=Debian,n=bookworm
-Pin-Priority: 900
-EOF
+          # Pin: only live-build (and its direct deps) should come from Debian Bookworm
+          # Everything else stays at Ubuntu priority
+          printf 'Package: *\nPin: release o=Debian,n=bookworm\nPin-Priority: 100\n\nPackage: live-build\nPin: release o=Debian,n=bookworm\nPin-Priority: 900\n' \
+            | sudo tee /etc/apt/preferences.d/debian-bookworm
 
           sudo apt-get update -y
           sudo apt-get install -y -t bookworm live-build
@@ -70,31 +66,7 @@ EOF
           sudo gpg --no-default-keyring \
                --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
                --list-keys 2>/dev/null | grep -E "^pub|F8D2585B8783D481" || true
-          echo "Keyring ready ✅"
-
-          # CRITICAL FIX: Patch lb_chroot_linux-image to skip the Contents-amd64.gz
-          # download that always returns 404 on deb.debian.org.
-          # The file tries to resolve the kernel flavour from the Contents index;
-          # we bypass it by making the wget call a no-op.
-          LB_LINUX_IMAGE=/usr/lib/live/build/lb_chroot_linux-image
-          if [ -f "$LB_LINUX_IMAGE" ]; then
-            echo "Patching $LB_LINUX_IMAGE to skip Contents-amd64.gz download..."
-            sudo sed -i \
-              's|wget.*Contents-${LB_ARCHITECTURES}\.gz.*||g' \
-              "$LB_LINUX_IMAGE" || true
-            # Broader patch: replace any wget line that fetches Contents
-            sudo sed -i \
-              '/wget.*Contents-/d' \
-              "$LB_LINUX_IMAGE" || true
-            # Also neutralise the gzip pipe that follows
-            sudo sed -i \
-              '/gzip.*stdin/d' \
-              "$LB_LINUX_IMAGE" || true
-            echo "Patch applied."
-            grep -n "Contents" "$LB_LINUX_IMAGE" || echo "No more Contents references."
-          else
-            echo "Warning: $LB_LINUX_IMAGE not found, skipping patch."
-          fi
+          echo "Setup complete ✅"
 
       - name: ⚙️ Configure live-build
         run: |
@@ -168,7 +140,7 @@ EOF
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
           body: |
-            # 🐧 Stupix Linux ISO
+            # 📦 Stupix Linux ISO
             Automatisch gebaut aus Commit `${{ github.sha }}`
             - **Branch:** ${{ github.ref_name }}
             - **Gebaut am:** ${{ github.event.head_commit.timestamp }}
