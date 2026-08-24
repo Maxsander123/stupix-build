@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Install base packages from Ubuntu (NOT live-build — Ubuntu's version has a Contents-amd64.gz bug)
+          # Install base packages from Ubuntu
           sudo apt-get install -y \
             debian-archive-keyring \
             debootstrap \
@@ -51,14 +51,24 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
             | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
 
-          # Pin: ALL Debian packages at priority 1 (below Ubuntu's default 500).
-          # Only live-build is pinned at 900 so it is always selected from Debian Bookworm.
-          # This prevents APT from "upgrading" Ubuntu's libc6, glibc, systemd, etc.
-          # with Debian Bookworm versions (which cause file-conflict dpkg errors).
-          printf 'Package: *\nPin: release o=Debian,n=bookworm\nPin-Priority: 1\n\nPackage: live-build\nPin: release o=Debian,n=bookworm\nPin-Priority: 900\n' \
-            | sudo tee /etc/apt/preferences.d/debian-bookworm
+          # Pin configuration:
+          # - ALL Debian packages get priority -1 (never install/upgrade from Debian)
+          # - ONLY live-build gets priority 990 (prefer Debian version over Ubuntu)
+          # This prevents Debian's libc6/glibc/libgnutls etc. from overwriting Ubuntu's versions.
+          sudo tee /etc/apt/preferences.d/debian-bookworm > /dev/null << 'EOF'
+Package: *
+Pin: release o=Debian,n=bookworm
+Pin-Priority: -1
+
+Package: live-build
+Pin: release o=Debian,n=bookworm
+Pin-Priority: 990
+EOF
 
           sudo apt-get update -y
+
+          # Install live-build from Debian Bookworm with --no-install-recommends
+          # to avoid pulling in Debian system libraries that conflict with Ubuntu
           sudo apt-get install -y --no-install-recommends -t bookworm live-build
 
           echo "live-build version: $(lb --version)"
