@@ -1,3 +1,9 @@
 linux-image-amd64
 live-boot
 live-boot-initramfs-tools
+live-config
+live-config-systemd
+grub2
+grub-pc
+grub-efi-amd64-signed
+shim-signed
