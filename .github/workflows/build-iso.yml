@@ -98,33 +98,38 @@ jobs:
       - name: 🔧 Fix isolinux paths for Ubuntu host
         run: |
           # Ubuntu 22.04's isolinux package installs files to /usr/lib/ISOLINUX/
-          # but live-build's syslinux binary stage expects them at /root/isolinux/
-          # AND also tries to copy them into binary/isolinux/ from /root/isolinux/.
-          # We pre-populate /root/isolinux/ here so the binary stage succeeds.
+          # but live-build's lb_binary_syslinux stage (which runs inside binary.chroot/)
+          # executes:
+          #   cp /root/isolinux/isolinux.bin  binary/isolinux/isolinux.bin
+          #   cp /root/isolinux/vesamenu.c32  binary/isolinux/vesamenu.c32
+          # Those paths are relative to binary.chroot/, NOT the host.
+          #
+          # Strategy: populate /root/isolinux/ on the HOST (the real root).
+          # Then also pre-seed chroot/root/isolinux/ so that when lb_binary_chroot
+          # copies chroot/ → binary.chroot/, the files are already there.
           set -euo pipefail
 
           ISOLINUX_SRC="/usr/lib/ISOLINUX"
           SYSLINUX_SRC="/usr/lib/syslinux/modules/bios"
-          TARGET="/root/isolinux"
 
-          sudo mkdir -p "${TARGET}"
+          # ── 1. HOST /root/isolinux/ ───────────────────────────────────────
+          HOST_TARGET="/root/isolinux"
+          sudo mkdir -p "${HOST_TARGET}"
 
-          # Copy isolinux.bin
           if [ -f "${ISOLINUX_SRC}/isolinux.bin" ]; then
-            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${TARGET}/isolinux.bin"
-            echo "✅ Copied isolinux.bin from ${ISOLINUX_SRC}"
+            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${HOST_TARGET}/isolinux.bin"
+            echo "✅ Copied isolinux.bin → ${HOST_TARGET}/"
           else
             echo "❌ isolinux.bin not found in ${ISOLINUX_SRC}"
             find /usr -name "isolinux.bin" 2>/dev/null || true
             exit 1
           fi
 
-          # Copy vesamenu.c32
           if [ -f "${SYSLINUX_SRC}/vesamenu.c32" ]; then
-            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${TARGET}/vesamenu.c32"
-            echo "✅ Copied vesamenu.c32 from ${SYSLINUX_SRC}"
+            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32 → ${HOST_TARGET}/"
           elif [ -f "/usr/lib/syslinux/vesamenu.c32" ]; then
-            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
             echo "✅ Copied vesamenu.c32 from /usr/lib/syslinux/"
           else
             echo "❌ vesamenu.c32 not found"
@@ -132,20 +137,31 @@ jobs:
             exit 1
           fi
 
-          echo "✅ /root/isolinux contents:"
-          sudo ls -lh "${TARGET}"
-
-          # Also pre-create binary/isolinux so lb_binary_syslinux can copy into it
-          # live-build will create binary/isolinux itself during the binary stage,
-          # but we need /root/isolinux to be populated (done above).
-          # Additionally copy all syslinux .c32 modules live-build may need:
+          # Copy all .c32 modules so lb_binary_syslinux has everything it needs
           for f in "${SYSLINUX_SRC}"/*.c32; do
             [ -f "$f" ] || continue
-            sudo cp "$f" "${TARGET}/"
+            sudo cp "$f" "${HOST_TARGET}/"
             echo "✅ Copied $(basename $f)"
           done
-          echo "✅ Final /root/isolinux contents:"
-          sudo ls -lh "${TARGET}"
+
+          echo "✅ /root/isolinux contents:"
+          sudo ls -lh "${HOST_TARGET}"
+
+          # ── 2. chroot/root/isolinux/ ─────────────────────────────────────
+          # lb_binary_chroot copies chroot/ → binary.chroot/ BEFORE running
+          # lb_binary_syslinux. Pre-seeding chroot/root/isolinux/ means the
+          # files will be present inside binary.chroot/ at the right time.
+          CHROOT_TARGET="chroot/root/isolinux"
+          sudo mkdir -p "${CHROOT_TARGET}"
+          sudo cp "${HOST_TARGET}/isolinux.bin" "${CHROOT_TARGET}/isolinux.bin"
+          sudo cp "${HOST_TARGET}/vesamenu.c32"  "${CHROOT_TARGET}/vesamenu.c32"
+          # Copy all .c32 modules
+          for f in "${HOST_TARGET}"/*.c32; do
+            [ -f "$f" ] || continue
+            sudo cp "$f" "${CHROOT_TARGET}/"
+          done
+          echo "✅ chroot/root/isolinux contents:"
+          sudo ls -lh "${CHROOT_TARGET}"
 
       - name: 🏗️ Build ISO
         run: |
