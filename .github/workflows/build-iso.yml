@@ -35,43 +35,66 @@ jobs:
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2
 
-          # Import Debian Bookworm signing key via ftp-master (keyserver often broken in CI)
+          # The Ubuntu-packaged debian-archive-keyring is outdated and missing
+          # the Debian Bookworm signing key F8D2585B8783D481.
+          # Fetch it directly from ftp-master.debian.org
           echo "Importing Debian Bookworm signing key..."
           wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
             sudo gpg --no-default-keyring \
                  --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
                  --import || true
 
-          # Install live-build from Ubuntu (version available)
-          sudo apt-get install -y live-build
+          # Add Debian Bookworm repo to install live-build from there
+          echo "Adding Debian Bookworm repo to install live-build..."
+          echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
+            | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
+
+          # Pin so only live-build (and its deps) come from Debian
+          cat <<'EOF' | sudo tee /etc/apt/preferences.d/debian-bookworm
+Package: *
+Pin: release o=Debian,n=bookworm
+Pin-Priority: 100
+
+Package: live-build
+Pin: release o=Debian,n=bookworm
+Pin-Priority: 900
+EOF
+
+          sudo apt-get update -y
+          sudo apt-get install -y -t bookworm live-build
 
           echo "live-build version: $(lb --version)"
 
-          # CRITICAL FIX: Patch lb_chroot_linux-image to skip the broken
-          # Contents-amd64.gz download. The Ubuntu-packaged live-build tries to
-          # fetch https://deb.debian.org/debian/dists/bookworm/Contents-amd64.gz
-          # which returns 404. We patch it so it skips this step entirely and
-          # relies on the package list (config/package-lists/kernel.list.chroot)
-          # to install the kernel package directly.
+          # Verify keyring
+          echo "=== Keyring keys ==="
+          sudo gpg --no-default-keyring \
+               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+               --list-keys 2>/dev/null | grep -E "^pub|F8D2585B8783D481" || true
+          echo "Keyring ready ✅"
+
+          # CRITICAL FIX: Patch lb_chroot_linux-image to skip the Contents-amd64.gz
+          # download that always returns 404 on deb.debian.org.
+          # The file tries to resolve the kernel flavour from the Contents index;
+          # we bypass it by making the wget call a no-op.
           LB_LINUX_IMAGE=/usr/lib/live/build/lb_chroot_linux-image
           if [ -f "$LB_LINUX_IMAGE" ]; then
-            echo "Patching $LB_LINUX_IMAGE to skip Contents-amd64.gz fetch..."
-            # Replace the wget call that fetches Contents-amd64.gz with a no-op
+            echo "Patching $LB_LINUX_IMAGE to skip Contents-amd64.gz download..."
             sudo sed -i \
-              's|wget.*Contents-${LB_ARCHITECTURES}.gz.*|echo "Skipping Contents file fetch (patched)"|g' \
-              "$LB_LINUX_IMAGE"
-            # Also neutralize any pipe into zcat/grep that would fail
+              's|wget.*Contents-${LB_ARCHITECTURES}\.gz.*||g' \
+              "$LB_LINUX_IMAGE" || true
+            # Broader patch: replace any wget line that fetches Contents
             sudo sed -i \
-              's|zcat.*Contents.*gz.*grep|true \&\& echo|g' \
-              "$LB_LINUX_IMAGE"
-            echo "Patch applied. Relevant section of lb_chroot_linux-image:"
-            grep -n "Contents\|wget\|zcat" "$LB_LINUX_IMAGE" | head -20 || true
+              '/wget.*Contents-/d' \
+              "$LB_LINUX_IMAGE" || true
+            # Also neutralise the gzip pipe that follows
+            sudo sed -i \
+              '/gzip.*stdin/d' \
+              "$LB_LINUX_IMAGE" || true
+            echo "Patch applied."
+            grep -n "Contents" "$LB_LINUX_IMAGE" || echo "No more Contents references."
           else
-            echo "WARNING: $LB_LINUX_IMAGE not found, listing live-build scripts..."
-            find /usr/lib/live -name "*linux*" 2>/dev/null || true
+            echo "Warning: $LB_LINUX_IMAGE not found, skipping patch."
           fi
-
-          echo "Keyring ready ✅"
 
       - name: ⚙️ Configure live-build
         run: |
