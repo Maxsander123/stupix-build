@@ -13,8 +13,6 @@ lb config noauto \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
-    --linux-packages linux-image-amd64 \
-    --linux-flavours amd64 \
     --initsystem systemd \
     --keyring-packages debian-archive-keyring \
     "${@}"
