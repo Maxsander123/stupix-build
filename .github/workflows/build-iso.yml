@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Install base packages
+          # Install base packages (but NOT live-build from Ubuntu — it has a bug)
           sudo apt-get install -y \
             debian-archive-keyring \
             debootstrap \
@@ -35,34 +35,24 @@ jobs:
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2
 
-          # The Ubuntu-packaged debian-archive-keyring is outdated and missing
-          # the Debian Bookworm signing key F8D2585B8783D481.
-          # Fetch it directly from the Debian keyserver and add it to the keyring.
-          echo "Importing Debian Bookworm signing key F8D2585B8783D481..."
-          sudo gpg --no-default-keyring \
-               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-               --keyserver hkps://keyserver.ubuntu.com \
-               --recv-keys F8D2585B8783D481 || true
+          # Import Debian Bookworm signing key into the system keyring
+          echo "Importing Debian Bookworm signing key..."
+          sudo mkdir -p /usr/share/keyrings
+          wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
+            sudo gpg --no-default-keyring \
+                 --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+                 --import || true
+          wget -qO- https://ftp-master.debian.org/keys/archive-key-12-security.asc | \
+            sudo gpg --no-default-keyring \
+                 --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+                 --import || true
 
-          # Fallback: fetch from ftp-master.debian.org
-          if ! sudo gpg --no-default-keyring \
-               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-               --list-keys F8D2585B8783D481 > /dev/null 2>&1; then
-            echo "Keyserver failed, trying ftp-master.debian.org..."
-            wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
-              sudo gpg --no-default-keyring \
-                   --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
-                   --import
-          fi
-
-          # Install live-build from the Debian Bookworm repository
-          # (the Ubuntu-packaged version has a bug: it tries to fetch
-          #  Contents-amd64.gz which returns 404 on Debian mirrors)
-          echo "Adding Debian Bookworm repo to install live-build..."
+          # Add Debian Bookworm repository
           echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian bookworm main" \
             | sudo tee /etc/apt/sources.list.d/debian-bookworm.list
 
-          # Pin so only live-build (and its deps) come from Debian
+          # Pin: only live-build (and its direct deps) should come from Debian Bookworm
+          # Everything else stays at Ubuntu priority
           cat <<'EOF' | sudo tee /etc/apt/preferences.d/debian-bookworm
 Package: *
 Pin: release o=Debian,n=bookworm
@@ -78,12 +68,12 @@ EOF
 
           echo "live-build version: $(lb --version)"
 
-          # Verify keyring contains the required key
+          # Verify keyring
           echo "=== Keyring keys ==="
           sudo gpg --no-default-keyring \
                --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
                --list-keys 2>/dev/null | grep -E "^pub|F8D2585B8783D481" || true
-          echo "Keyring ready ✅"
+          echo "Setup complete ✅"
 
       - name: ⚙️ Configure live-build
         run: |
@@ -157,7 +147,7 @@ EOF
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
           body: |
-            # 🐧 Stupix Linux ISO
+            # 📧 Stupix Linux ISO
             Automatisch gebaut aus Commit `${{ github.sha }}`
             - **Branch:** ${{ github.ref_name }}
             - **Gebaut am:** ${{ github.event.head_commit.timestamp }}
