@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-22.04
     # No container: directive – run directly on the Ubuntu host so that
     # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
-    # Docker containers lack the SYS_ADMIN capability needed for those mounts.
     timeout-minutes: 90
 
     env:
@@ -34,16 +33,15 @@ jobs:
             debian-archive-keyring \
             debootstrap \
             xorriso \
-            isolinux \
-            syslinux-common \
-            syslinux-utils \
+            grub-pc \
+            grub-efi-amd64-signed \
+            shim-signed \
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
             sudo \
             bash
 
           echo "live-build version: $(lb --version)"
-          echo "isohybrid location: $(which isohybrid || echo 'NOT FOUND')"
 
       - name: 🔑 Fetch up-to-date Debian Bookworm keyring
         run: |
@@ -63,15 +61,15 @@ jobs:
 
           echo "Key not found. Attempting import via keyserver.ubuntu.com..."
           if gpg --no-default-keyring \
-                 --keyring "${KEYRING}" \
-                 --keyserver hkps://keyserver.ubuntu.com \
-                 --recv-keys "${KEY_ID}" 2>/dev/null; then
+                   --keyring "${KEYRING}" \
+                   --keyserver hkps://keyserver.ubuntu.com \
+                   --recv-keys "${KEY_ID}" 2>/dev/null; then
             echo "✅ Key imported from keyserver.ubuntu.com"
           else
             echo "Keyserver import failed. Trying direct ASC download from ftp-master.debian.org..."
             if curl -fsSL "https://ftp-master.debian.org/keys/release-12.asc" \
-                 | gpg --dearmor \
-                 | sudo tee -a "${KEYRING}" > /dev/null; then
+                     | gpg --dearmor \
+                     | sudo tee -a "${KEYRING}" > /dev/null; then
               echo "✅ Key imported from ftp-master.debian.org ASC"
             else
               echo "ftp-master.debian.org failed. Trying salsa.debian.org fallback..."
@@ -96,74 +94,6 @@ jobs:
           # lb requires root (lb_testroot), so use sudo.
           sudo lb config
           echo "lb config ✅"
-
-      - name: 🔧 Fix isolinux paths for Ubuntu host
-        run: |
-          # Ubuntu 22.04's isolinux package installs files to /usr/lib/ISOLINUX/
-          # but live-build's lb_binary_syslinux stage (which runs inside binary.chroot/)
-          # executes:
-          #   cp /root/isolinux/isolinux.bin  binary/isolinux/isolinux.bin
-          #   cp /root/isolinux/vesamenu.c32  binary/isolinux/vesamenu.c32
-          # Those paths are relative to binary.chroot/, NOT the host.
-          #
-          # Strategy: populate /root/isolinux/ on the HOST (the real root).
-          # Then also pre-seed chroot/root/isolinux/ so that when lb_binary_chroot
-          # copies chroot/ → binary.chroot/, the files are already there.
-          set -euo pipefail
-
-          ISOLINUX_SRC="/usr/lib/ISOLINUX"
-          SYSLINUX_SRC="/usr/lib/syslinux/modules/bios"
-
-          # ── 1. HOST /root/isolinux/ ───────────────────────────────────────
-          HOST_TARGET="/root/isolinux"
-          sudo mkdir -p "${HOST_TARGET}"
-
-          if [ -f "${ISOLINUX_SRC}/isolinux.bin" ]; then
-            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${HOST_TARGET}/isolinux.bin"
-            echo "✅ Copied isolinux.bin → ${HOST_TARGET}/"
-          else
-            echo "❌ isolinux.bin not found in ${ISOLINUX_SRC}"
-            find /usr -name "isolinux.bin" 2>/dev/null || true
-            exit 1
-          fi
-
-          if [ -f "${SYSLINUX_SRC}/vesamenu.c32" ]; then
-            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
-            echo "✅ Copied vesamenu.c32 → ${HOST_TARGET}/"
-          elif [ -f "/usr/lib/syslinux/vesamenu.c32" ]; then
-            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${HOST_TARGET}/vesamenu.c32"
-            echo "✅ Copied vesamenu.c32 from /usr/lib/syslinux/"
-          else
-            echo "❌ vesamenu.c32 not found"
-            find /usr -name "vesamenu.c32" 2>/dev/null || true
-            exit 1
-          fi
-
-          # Copy all .c32 modules so lb_binary_syslinux has everything it needs
-          for f in "${SYSLINUX_SRC}"/*.c32; do
-            [ -f "$f" ] || continue
-            sudo cp "$f" "${HOST_TARGET}/"
-            echo "✅ Copied $(basename $f)"
-          done
-
-          echo "✅ /root/isolinux contents:"
-          sudo ls -lh "${HOST_TARGET}"
-
-          # ── 2. chroot/root/isolinux/ ─────────────────────────────────────
-          # lb_binary_chroot copies chroot/ → binary.chroot/ BEFORE running
-          # lb_binary_syslinux. Pre-seeding chroot/root/isolinux/ means the
-          # files will be present inside binary.chroot/ at the right time.
-          CHROOT_TARGET="chroot/root/isolinux"
-          sudo mkdir -p "${CHROOT_TARGET}"
-          sudo cp "${HOST_TARGET}/isolinux.bin" "${CHROOT_TARGET}/isolinux.bin"
-          sudo cp "${HOST_TARGET}/vesamenu.c32"  "${CHROOT_TARGET}/vesamenu.c32"
-          # Copy all .c32 modules
-          for f in "${HOST_TARGET}"/*.c32; do
-            [ -f "$f" ] || continue
-            sudo cp "$f" "${CHROOT_TARGET}/"
-          done
-          echo "✅ chroot/root/isolinux contents:"
-          sudo ls -lh "${CHROOT_TARGET}"
 
       - name: 🏗️ Build ISO
         run: |
