@@ -19,5 +19,5 @@ lb config noauto \
     --checksums sha256 \
     --linux-packages "" \
     --linux-flavours "" \
-    --initsystem systemd \
+    --live-config-backend systemd \
     "${@}"
