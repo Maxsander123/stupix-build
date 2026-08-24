@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Debian Bookworm Keyring direkt per apt installieren (kein fehleranfälliger wget-URL)
+          # Debian Bookworm Keyring direkt per apt installieren (kein fehlerhafter wget-URL)
           sudo apt-get install -y debian-archive-keyring
 
           # live-build aus dem Ubuntu-Repository installieren
@@ -47,26 +47,20 @@ jobs:
 
       - name: ⚙️ Configure live-build
         run: |
-          # live-build explizit für Debian Bookworm konfigurieren.
-          # Ohne --distribution und weitere Flags baut lb mit Ubuntu-Defaults
-          # was auf GitHub-Runnern immer scheitert.
-          sudo lb config \
-            --distribution bookworm \
-            --archive-areas "main contrib non-free non-free-firmware" \
-            --apt-source-archives false \
-            --binary-images iso-hybrid \
-            --bootappend-live "boot=live components locales=de_DE.UTF-8 keyboard-layouts=de" \
-            --mirror-bootstrap "http://deb.debian.org/debian/" \
-            --mirror-binary "http://deb.debian.org/debian/" \
-            --mirror-binary-security "http://security.debian.org/debian-security/" \
-            --apt-recommends false \
-            --memtest none \
-            --win32-loader false \
-            --zsync false
+          # auto/config enthält bereits alle Konfigurationsparameter.
+          # lb config OHNE zusätzliche Argumente aufrufen, damit auto/config
+          # die Konfiguration übernimmt – andernfalls entstehen Konflikte
+          # zwischen Workflow-Parametern und auto/config.
+          sudo lb config
           echo "lb config ✅"
 
       - name: 🏗️ Build ISO
         run: |
+          # WICHTIG: pipefail aktivieren!
+          # Ohne pipefail maskiert `tee` den Exit-Code von `lb build`:
+          # lb build schlägt fehl → tee schreibt das Log trotzdem erfolgreich
+          # → der Schritt gilt als "success" obwohl kein ISO gebaut wurde.
+          set -o pipefail
           sudo lb build 2>&1 | tee build.log
           echo "=== Suche ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
@@ -83,10 +77,24 @@ jobs:
       - name: 📍 Find ISO
         id: find_iso
         run: |
-          ISO_PATH=$(find /home/runner/work -name "*.iso" -type f 2>/dev/null | head -1)
+          # lb build legt die ISO im aktuellen Arbeitsverzeichnis ($GITHUB_WORKSPACE) ab.
+          # Suche daher direkt im Workspace, nicht tief in /home/runner/work.
+          ISO_PATH=$(find "${GITHUB_WORKSPACE}" -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
+
+          # Fallback: ISO direkt im aktuellen Verzeichnis
+          if [ -z "$ISO_PATH" ]; then
+            ISO_PATH=$(ls *.iso 2>/dev/null | head -1)
+            if [ -n "$ISO_PATH" ]; then
+              ISO_PATH="$(pwd)/${ISO_PATH}"
+            fi
+          fi
+
           if [ -z "$ISO_PATH" ]; then
             echo "❌ Keine ISO gefunden!"
+            echo "=== Verzeichnisinhalt ==="
             ls -lah
+            echo "=== Suche nach .iso in gesamtem /home/runner ==="
+            find /home/runner -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
             exit 1
           fi
           echo "✅ ISO gefunden: $ISO_PATH"
@@ -115,7 +123,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
           body: |
-            ## 🐧 Stupix Linux ISO
+            # 🐧 Stupix Linux ISO
             Automatisch gebaut aus Commit `${{ github.sha }}`
             - **Branch:** ${{ github.ref_name }}
             - **Gebaut am:** ${{ github.event.head_commit.timestamp }}
