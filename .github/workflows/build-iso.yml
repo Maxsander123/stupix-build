@@ -12,24 +12,29 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive — run directly on the Ubuntu host so that
-    # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
-    # Docker containers lack the SYS_ADMIN capability needed for those mounts.
+    container:
+      image: debian:bookworm
+      options: --privileged
     timeout-minutes: 90
 
     env:
       DEBIAN_FRONTEND: noninteractive
 
     steps:
+      - name: 📥 Install git for checkout
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends git ca-certificates
+
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
       - name: 🔧 Install dependencies
         run: |
-          sudo apt-get update -y
+          apt-get update -y
 
-          # Install live-build and all required tools
-          sudo apt-get install -y --no-install-recommends \
+          # Install live-build and all required tools natively on Debian Bookworm
+          apt-get install -y --no-install-recommends \
             live-build \
             debian-archive-keyring \
             debootstrap \
@@ -53,6 +58,9 @@ jobs:
       - name: 🏗️ Build ISO
         run: |
           # Run lb build, redirect stdout+stderr to build.log AND display it.
+          # NOTE: We do NOT use 'set -o pipefail' (bash-only, not supported by
+          # /bin/sh=dash in debian:bookworm container).
+          # Instead, run lb build directly and capture its exit code.
           lb build 2>&1 | tee build.log; EXIT_CODE=${PIPESTATUS[0]}
           echo "=== Suche ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
