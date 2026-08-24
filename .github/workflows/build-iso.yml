@@ -95,6 +95,45 @@ jobs:
           sudo lb config
           echo "lb config ✅"
 
+      - name: 🔧 Fix isolinux paths for Ubuntu host
+        run: |
+          # Ubuntu 22.04's isolinux package installs files to /usr/lib/ISOLINUX/
+          # but live-build's syslinux stage expects them at /root/isolinux/.
+          # Create the directory and symlink/copy the required files.
+          set -euo pipefail
+
+          ISOLINUX_SRC="/usr/lib/ISOLINUX"
+          SYSLINUX_SRC="/usr/lib/syslinux/modules/bios"
+          TARGET="/root/isolinux"
+
+          sudo mkdir -p "${TARGET}"
+
+          # Copy isolinux.bin
+          if [ -f "${ISOLINUX_SRC}/isolinux.bin" ]; then
+            sudo cp "${ISOLINUX_SRC}/isolinux.bin" "${TARGET}/isolinux.bin"
+            echo "✅ Copied isolinux.bin from ${ISOLINUX_SRC}"
+          else
+            echo "❌ isolinux.bin not found in ${ISOLINUX_SRC}"
+            find /usr -name "isolinux.bin" 2>/dev/null || true
+            exit 1
+          fi
+
+          # Copy vesamenu.c32
+          if [ -f "${SYSLINUX_SRC}/vesamenu.c32" ]; then
+            sudo cp "${SYSLINUX_SRC}/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32 from ${SYSLINUX_SRC}"
+          elif [ -f "/usr/lib/syslinux/vesamenu.c32" ]; then
+            sudo cp "/usr/lib/syslinux/vesamenu.c32" "${TARGET}/vesamenu.c32"
+            echo "✅ Copied vesamenu.c32 from /usr/lib/syslinux/"
+          else
+            echo "❌ vesamenu.c32 not found"
+            find /usr -name "vesamenu.c32" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "✅ /root/isolinux contents:"
+          ls -lh "${TARGET}"
+
       - name: 🏗️ Build ISO
         run: |
           # Run lb build as root (lb_testroot requires root privileges).
