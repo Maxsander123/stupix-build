@@ -17,4 +17,6 @@ lb config noauto \
     --firmware-binary true \
     --memtest none \
     --checksums sha256 \
+    --linux-flavours amd64 \
+    --linux-packages "linux-image" \
     "${@}"
