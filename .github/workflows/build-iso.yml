@@ -24,15 +24,14 @@ jobs:
       - name: 🔧 Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get remove --purge -y live-build 2>/dev/null || true
 
-          # Debian Bookworm Keyring direkt installieren
-          wget -q "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2023.3+deb12u2_all.deb" \
-            -O /tmp/debian-archive-keyring.deb
-          sudo dpkg -i /tmp/debian-archive-keyring.deb || true
-          sudo apt-get install -f -y
+          # Debian Bookworm Keyring direkt per apt installieren (kein fehleranfälliger wget-URL)
+          sudo apt-get install -y debian-archive-keyring
 
+          # live-build aus dem Ubuntu-Repository installieren
+          # (manuelle .deb-URLs sind instabil und führen zu 404-Fehlern)
           sudo apt-get install -y \
+            live-build \
             debootstrap \
             xorriso \
             isolinux \
@@ -40,10 +39,6 @@ jobs:
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2
 
-          # Neueren live-build von Debian holen
-          wget -q "https://deb.debian.org/debian/pool/main/l/live-build/live-build_20230502_all.deb" \
-            -O /tmp/live-build.deb
-          sudo dpkg -i /tmp/live-build.deb
           echo "live-build version: $(lb --version)"
 
           # Prüfen ob Keyring vorhanden
@@ -51,7 +46,24 @@ jobs:
           echo "Keyring vorhanden ✅"
 
       - name: ⚙️ Configure live-build
-        run: sudo lb config
+        run: |
+          # live-build explizit für Debian Bookworm konfigurieren.
+          # Ohne --distribution und weitere Flags baut lb mit Ubuntu-Defaults
+          # was auf GitHub-Runnern immer scheitert.
+          sudo lb config \
+            --distribution bookworm \
+            --archive-areas "main contrib non-free non-free-firmware" \
+            --apt-source-archives false \
+            --binary-images iso-hybrid \
+            --bootappend-live "boot=live components locales=de_DE.UTF-8 keyboard-layouts=de" \
+            --mirror-bootstrap "http://deb.debian.org/debian/" \
+            --mirror-binary "http://deb.debian.org/debian/" \
+            --mirror-binary-security "http://security.debian.org/debian-security/" \
+            --apt-recommends false \
+            --memtest none \
+            --win32-loader false \
+            --zsync false
+          echo "lb config ✅"
 
       - name: 🏗️ Build ISO
         run: |
@@ -59,7 +71,7 @@ jobs:
           echo "=== Suche ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
 
-      - name: 📤 Upload Build Log (immer)
+      - name: 📄 Upload Build Log (immer)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -68,7 +80,7 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
-      - name: 🔍 Find ISO
+      - name: 📍 Find ISO
         id: find_iso
         run: |
           ISO_PATH=$(find /home/runner/work -name "*.iso" -type f 2>/dev/null | head -1)
@@ -82,6 +94,10 @@ jobs:
           DEST="${GITHUB_WORKSPACE}/stupix-linux.iso"
           sudo cp "$ISO_PATH" "$DEST"
           sudo chmod 644 "$DEST"
+          if [ ! -f "$DEST" ]; then
+            echo "❌ Kopieren der ISO fehlgeschlagen!"
+            exit 1
+          fi
           echo "iso_path=$DEST" >> $GITHUB_OUTPUT
           ls -lh "$DEST"
 
@@ -93,7 +109,8 @@ jobs:
           echo "Tag: $TAG"
 
       - name: 🚀 Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        # Verwende v1 statt v2 – v2 hat Breaking Changes in der API
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
