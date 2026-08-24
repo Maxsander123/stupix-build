@@ -73,9 +73,11 @@ LB_INITRAMFS_COMPRESSION=""
 
 # $LB_INITSYSTEM: set init system
 # (Default: sysvinit)
-# Changed to systemd to match --live-config-backend systemd in auto/config
-# and avoid conflict between live-config-systemd and live-config-sysvinit
-LB_INITSYSTEM="systemd"
+# NOTE: Do NOT set to systemd here - live-build will try to install BOTH
+# live-config-systemd AND live-config-sysvinit which conflict with each other.
+# The systemd live-config backend is installed via config/package-lists/stupix.list.chroot
+# (live-config-systemd) directly, bypassing live-build's internal init selection.
+LB_INITSYSTEM="sysvinit"
 
 # $LB_FDISK: set fdisk program
 # (Default: autodetected)
