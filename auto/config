@@ -10,7 +10,6 @@ lb config noauto \
     --binary-images iso-hybrid \
     --bootloader grub-pc \
     --bootappend-live "boot=live components quiet splash net.ifnames=0 biosdevname=0" \
-    --bootappend-live-failsafe "boot=live components noapic noapm nodma nomce nolapic nomodetest nosmp vga=normal" \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
