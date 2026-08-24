@@ -54,13 +54,16 @@ jobs:
           echo "lb config ✅"
 
       - name: 🏗️ Build ISO
-        shell: bash
         run: |
-          # pipefail: bash-only feature, requires explicit bash shell
-          set -o pipefail
-          lb build 2>&1 | tee build.log
+          # Run lb build, redirect stdout+stderr to build.log AND display it.
+          # NOTE: We do NOT use 'set -o pipefail' (bash-only, not supported by
+          # /bin/sh=dash in debian:bookworm container).
+          # Instead, run lb build directly and capture its exit code.
+          lb build 2>&1 | tee build.log; EXIT_CODE=${PIPESTATUS[0]}
           echo "=== Suche ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
+          exit ${EXIT_CODE}
+        shell: bash
 
       - name: 📄 Upload Build Log (immer)
         if: always()
