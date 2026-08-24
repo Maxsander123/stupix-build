@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive — run directly on the Ubuntu host so that
+    # No container: directive – run directly on the Ubuntu host so that
     # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
     # Docker containers lack the SYS_ADMIN capability needed for those mounts.
     timeout-minutes: 90
@@ -45,49 +45,39 @@ jobs:
 
       - name: 🔑 Fetch up-to-date Debian Bookworm keyring
         run: |
-          # The debian-archive-keyring shipped with Ubuntu 22.04 is outdated and
-          # does NOT contain the current Debian 12 Bookworm key (F8D2585B8783D481).
-          # We import the key directly from Debian's keyserver infrastructure,
-          # which is always available and does not rely on a hardcoded package URL.
+          # Import the Debian 12 Bookworm archive signing key directly.
+          # We avoid hardcoded .deb URLs (which break when the package is updated)
+          # and instead fetch the ASCII-armored key from the official Debian key server.
           set -euo pipefail
 
           KEYRING_FILE="/usr/share/keyrings/debian-archive-keyring.gpg"
-          BOOKWORM_KEY="F8D2585B8783D481"
+          BOOKWORM_KEY_ID="F8D2585B8783D481"
 
-          echo "Checking if Bookworm key ${BOOKWORM_KEY} is already present..."
-          if gpg --no-default-keyring \
-                 --keyring "${KEYRING_FILE}" \
-                 --list-keys "${BOOKWORM_KEY}" 2>/dev/null; then
-            echo "✅ Bookworm key already present in keyring – nothing to do."
+          echo "Attempting to import Bookworm signing key ${BOOKWORM_KEY_ID}..."
+
+          # Method 1: fetch the release-12.asc file from ftp-master.debian.org
+          if curl -fsSL --retry 3 --retry-delay 5 \
+               "https://ftp-master.debian.org/keys/release-12.asc" \
+               | gpg --dearmor \
+               | sudo tee -a "${KEYRING_FILE}" > /dev/null; then
+            echo "✅ Key fetched from ftp-master.debian.org"
           else
-            echo "Key not found – importing from Debian keyserver..."
-
-            # Try to download the Bookworm stable release key from Debian's key server
-            # Use multiple fallback methods for resilience.
-
-            # Method 1: recv-keys from keyserver
-            if gpg --no-default-keyring \
-                   --keyring "${KEYRING_FILE}" \
-                   --keyserver hkps://keyserver.ubuntu.com \
-                   --recv-keys "${BOOKWORM_KEY}" 2>/dev/null; then
-              echo "✅ Key imported via Ubuntu keyserver"
-            else
-              echo "Keyserver failed – trying direct ASC download from ftp-master.debian.org..."
-
-              # Method 2: Download ASC key directly from Debian ftp-master
-              curl -fsSL "https://ftp-master.debian.org/keys/release-12.asc" \
-                | gpg --dearmor \
-                | sudo tee -a "${KEYRING_FILE}" > /dev/null
-              echo "✅ Key appended from ftp-master.debian.org"
-            fi
-
-            # Final verification
-            gpg --no-default-keyring \
-                --keyring "${KEYRING_FILE}" \
-                --list-keys "${BOOKWORM_KEY}" \
-              && echo "✅ Bookworm key confirmed in keyring" \
-              || { echo "❌ Key still missing after all import attempts – aborting"; exit 1; }
+            echo "⚠️  ftp-master fetch failed, trying keyserver fallback..."
+            # Method 2: keyserver fallback
+            sudo gpg --no-default-keyring \
+                     --keyring "${KEYRING_FILE}" \
+                     --keyserver hkps://keyserver.ubuntu.com \
+                     --recv-keys "${BOOKWORM_KEY_ID}" \
+              && echo "✅ Key fetched from keyserver.ubuntu.com" \
+              || { echo "❌ All key import methods failed"; exit 1; }
           fi
+
+          echo "Verifying key ${BOOKWORM_KEY_ID} is present..."
+          gpg --no-default-keyring \
+              --keyring "${KEYRING_FILE}" \
+              --list-keys "${BOOKWORM_KEY_ID}" \
+            && echo "✅ Bookworm key confirmed in keyring" \
+            || { echo "❌ Key still missing after import attempts"; exit 1; }
 
       - name: ⚙️ Configure live-build
         run: |
