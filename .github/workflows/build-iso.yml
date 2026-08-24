@@ -25,13 +25,9 @@ jobs:
         run: |
           sudo apt-get update -y
 
-          # Debian Bookworm Keyring direkt per apt installieren (kein fehlerhafter wget-URL)
-          sudo apt-get install -y debian-archive-keyring
-
-          # live-build aus dem Ubuntu-Repository installieren
-          # (manuelle .deb-URLs sind instabil und führen zu 404-Fehlern)
+          # Install base packages
           sudo apt-get install -y \
-            live-build \
+            debian-archive-keyring \
             debootstrap \
             xorriso \
             isolinux \
@@ -39,27 +35,49 @@ jobs:
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2
 
+          # The Ubuntu-packaged debian-archive-keyring is outdated and missing
+          # the Debian Bookworm signing key F8D2585B8783D481.
+          # Fetch it directly from the Debian keyserver and add it to the keyring.
+          echo "Importing Debian Bookworm signing key F8D2585B8783D481..."
+          sudo gpg --no-default-keyring \
+               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+               --keyserver hkps://keyserver.ubuntu.com \
+               --recv-keys F8D2585B8783D481 || true
+
+          # Fallback: fetch from ftp-master.debian.org
+          if ! sudo gpg --no-default-keyring \
+               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+               --list-keys F8D2585B8783D481 > /dev/null 2>&1; then
+            echo "Keyserver failed, trying ftp-master.debian.org..."
+            wget -qO- https://ftp-master.debian.org/keys/archive-key-12.asc | \
+              sudo gpg --no-default-keyring \
+                   --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+                   --import
+          fi
+
+          # Install live-build from Ubuntu repository
+          sudo apt-get install -y live-build
+
           echo "live-build version: $(lb --version)"
 
-          # Prüfen ob Keyring vorhanden
-          ls -lh /usr/share/keyrings/debian-archive-keyring.gpg
-          echo "Keyring vorhanden ✅"
+          # Verify keyring contains the required key
+          echo "=== Keyring keys ==="
+          sudo gpg --no-default-keyring \
+               --keyring /usr/share/keyrings/debian-archive-keyring.gpg \
+               --list-keys 2>/dev/null | grep -E "^pub|F8D2585B8783D481" || true
+          echo "Keyring ready ✅"
 
       - name: ⚙️ Configure live-build
         run: |
-          # auto/config enthält bereits alle Konfigurationsparameter.
-          # lb config OHNE zusätzliche Argumente aufrufen, damit auto/config
-          # die Konfiguration übernimmt – andernfalls entstehen Konflikte
-          # zwischen Workflow-Parametern und auto/config.
+          # auto/config contains all configuration parameters.
+          # Call lb config WITHOUT extra arguments so auto/config takes over.
           sudo lb config
           echo "lb config ✅"
 
       - name: 🏗️ Build ISO
         run: |
           # WICHTIG: pipefail aktivieren!
-          # Ohne pipefail maskiert `tee` den Exit-Code von `lb build`:
-          # lb build schlägt fehl → tee schreibt das Log trotzdem erfolgreich
-          # → der Schritt gilt als "success" obwohl kein ISO gebaut wurde.
+          # Ohne pipefail maskiert `tee` den Exit-Code von `lb build`.
           set -o pipefail
           sudo lb build 2>&1 | tee build.log
           echo "=== Suche ISO ==="
@@ -78,7 +96,6 @@ jobs:
         id: find_iso
         run: |
           # lb build legt die ISO im aktuellen Arbeitsverzeichnis ($GITHUB_WORKSPACE) ab.
-          # Suche daher direkt im Workspace, nicht tief in /home/runner/work.
           ISO_PATH=$(find "${GITHUB_WORKSPACE}" -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
 
           # Fallback: ISO direkt im aktuellen Verzeichnis
@@ -93,7 +110,7 @@ jobs:
             echo "❌ Keine ISO gefunden!"
             echo "=== Verzeichnisinhalt ==="
             ls -lah
-            echo "=== Suche nach .iso in gesamtem /home/runner ==="
+            echo "=== Suche nach .iso in gesamt /home/runner ==="
             find /home/runner -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
             exit 1
           fi
@@ -117,7 +134,6 @@ jobs:
           echo "Tag: $TAG"
 
       - name: 🚀 Create GitHub Release
-        # Verwende v1 statt v2 – v2 hat Breaking Changes in der API
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
