@@ -13,6 +13,10 @@ lb config noauto \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
+    --firmware-chroot true \
+    --firmware-binary true \
+    --memtest none \
+    --checksums sha256 \
     --linux-packages "" \
     --linux-flavours "" \
     "${@}"
