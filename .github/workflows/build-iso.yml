@@ -12,8 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    container:
-      image: debian:bookworm
+    container: debian:bookworm
     timeout-minutes: 90
 
     env:
@@ -42,7 +41,8 @@ jobs:
             syslinux-common \
             squashfs-tools \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
-            sudo
+            sudo \
+            bash
 
           echo "live-build version: $(lb --version)"
 
@@ -54,9 +54,9 @@ jobs:
           echo "lb config ✅"
 
       - name: 🏗️ Build ISO
+        shell: bash
         run: |
-          # WICHTIG: pipefail aktivieren!
-          # Ohne pipefail maskiert `tee` den Exit-Code von `lb build`.
+          # pipefail: bash-only feature, requires explicit bash shell
           set -o pipefail
           lb build 2>&1 | tee build.log
           echo "=== Suche ISO ==="
@@ -89,15 +89,15 @@ jobs:
             echo "❌ Keine ISO gefunden!"
             echo "=== Verzeichnisinhalt ==="
             ls -lah
-            echo "=== Suche nach .iso in gesamt /root ==="
-            find /root -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
+            echo "=== Suche nach .iso in gesamt /home/runner ==="
+            find /home/runner -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
             exit 1
           fi
           echo "✅ ISO gefunden: $ISO_PATH"
           ls -lh "$ISO_PATH"
           DEST="${GITHUB_WORKSPACE}/stupix-linux.iso"
-          cp "$ISO_PATH" "$DEST"
-          chmod 644 "$DEST"
+          sudo cp "$ISO_PATH" "$DEST"
+          sudo chmod 644 "$DEST"
           if [ ! -f "$DEST" ]; then
             echo "❌ Kopieren der ISO fehlgeschlagen!"
             exit 1
