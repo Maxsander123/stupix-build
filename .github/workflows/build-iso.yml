@@ -38,6 +38,7 @@ jobs:
             shim-signed \
             squashfs-tools \
             isolinux \
+            syslinux-utils \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
             sudo \
             bash
