@@ -2,6 +2,51 @@
 
 set -e
 
+# ---------------------------------------------------------------------------
+# Configurable repo source — override via environment variables for local or
+# private-instance builds (Gitea, GitLab, Forgejo, GitHub Enterprise, …).
+#
+# Examples:
+#   Public GitHub (default, no auth needed):
+#     lb config   (or: auto/config)
+#
+#   Private Gitea/Forgejo/GitLab with user + token:
+#     STUPIX_REPO=https://gitea.example.com/myorg/stupix \
+#     STUPIX_REPO_USER=myuser \
+#     STUPIX_REPO_TOKEN=mysecrettoken \
+#     lb build
+#
+#   GitHub with PAT (token-only style):
+#     STUPIX_REPO=https://github.com/myorg/stupix \
+#     STUPIX_REPO_TOKEN=ghp_xxxx \
+#     lb build
+#
+#   SSH (no STUPIX_REPO_USER/TOKEN needed — ensure key is reachable at boot):
+#     STUPIX_REPO=git@gitea.example.com:myorg/stupix.git \
+#     lb build
+#
+# STUPIX_REPO_TOKEN is stored in /etc/stupix/repo.conf inside the ISO.
+# Use chmod 600 (already applied) and avoid leaking this ISO if the token
+# grants write access to sensitive repos.
+# ---------------------------------------------------------------------------
+
+STUPIX_REPO="${STUPIX_REPO:-https://github.com/Maxsander123/stupix}"
+STUPIX_REPO_USER="${STUPIX_REPO_USER:-}"
+STUPIX_REPO_TOKEN="${STUPIX_REPO_TOKEN:-}"
+
+mkdir -p config/includes.chroot/etc/stupix
+cat > config/includes.chroot/etc/stupix/repo.conf << REPOCONF
+STUPIX_REPO="${STUPIX_REPO}"
+STUPIX_REPO_USER="${STUPIX_REPO_USER}"
+STUPIX_REPO_TOKEN="${STUPIX_REPO_TOKEN}"
+REPOCONF
+chmod 600 config/includes.chroot/etc/stupix/repo.conf
+
+echo "Repo config baked into ISO:"
+echo "  STUPIX_REPO      = ${STUPIX_REPO}"
+echo "  STUPIX_REPO_USER = ${STUPIX_REPO_USER:-<none>}"
+echo "  STUPIX_REPO_TOKEN= ${STUPIX_REPO_TOKEN:+<set>}${STUPIX_REPO_TOKEN:-<none>}"
+
 lb config noauto \
     --architectures amd64 \
     --distribution bookworm \
