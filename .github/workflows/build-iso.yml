@@ -80,6 +80,7 @@ jobs:
 
       - name: 🏷️ Generate Release Tag
         id: tag
+        shell: bash
         run: |
           SHORT_SHA="${GITHUB_SHA:0:7}"
           TAG="v$(date +'%Y.%m.%d')-${SHORT_SHA}"
