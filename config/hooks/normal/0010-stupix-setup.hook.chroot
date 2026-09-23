@@ -63,12 +63,18 @@ cat > /etc/motd << 'MOTD'
  Logs:    /var/log/stupix/
  Scripts: /opt/stupix/
 
- IPMI commands:
+ Quick access:
+   cat /var/log/stupix/serials.log
+   cat /var/log/stupix/inventory.json
+   cat /var/log/stupix/dmesg-errors.log
+   cat /var/log/stupix/check-deps.log
+
+ IPMI:
    ipmitool chassis status
    ipmitool sdr list
    ipmitool sel list
    ipmitool fru print
-   ipmitool -I lanplus -H <BMC-IP> -U root -P <pass> chassis status
+   ipmitool lan print 1
 
  Hardware:
    dmidecode -t system
@@ -77,7 +83,6 @@ cat > /etc/motd << 'MOTD'
    nvme list
 
  Network:
-   nmap -sn 192.168.x.0/24
    tcpdump -i eth0
    iperf3 -s
 ============================================================
