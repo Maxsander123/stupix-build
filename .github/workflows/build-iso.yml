@@ -12,9 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # No container: directive – run directly on the Ubuntu host so that
-    # live-build can mount /proc and /dev/pts inside the debootstrap chroot.
-    timeout-minutes: 90
+    container:
+      image: debian:bookworm
+      options: --privileged
 
     env:
       DEBIAN_FRONTEND: noninteractive
@@ -23,91 +23,36 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🔧 Install dependencies
+      - name: 🔧 Install build dependencies
         run: |
-          sudo apt-get update -y
-
-          # Install live-build and all required tools
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
             live-build \
-            debian-archive-keyring \
             debootstrap \
             xorriso \
-            grub-pc \
+            squashfs-tools \
+            grub-efi-amd64 \
             grub-efi-amd64-signed \
             shim-signed \
-            squashfs-tools \
-            isolinux \
             syslinux-utils \
-            wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
-            sudo \
-            bash
-
+            debian-archive-keyring \
+            wget curl git gnupg2 ca-certificates \
+            sudo
           echo "live-build version: $(lb --version)"
 
-      - name: 🔑 Fetch up-to-date Debian Bookworm keyring
-        run: |
-          # The debian-archive-keyring shipped with Ubuntu 22.04 is outdated and
-          # does NOT contain the current Debian 12 Bookworm key (F8D2585B8783D481).
-          # Import the key directly via gpg keyserver (no fragile versioned .deb URL).
-          set -euo pipefail
-
-          KEYRING="/usr/share/keyrings/debian-archive-keyring.gpg"
-          KEY_ID="F8D2585B8783D481"
-
-          echo "Checking if Bookworm key ${KEY_ID} is already present..."
-          if gpg --no-default-keyring --keyring "${KEYRING}" --list-keys "${KEY_ID}" 2>/dev/null; then
-            echo "✅ Bookworm key already present in keyring – nothing to do."
-            exit 0
-          fi
-
-          echo "Key not found. Attempting import via keyserver.ubuntu.com..."
-          if gpg --no-default-keyring \
-                   --keyring "${KEYRING}" \
-                   --keyserver hkps://keyserver.ubuntu.com \
-                   --recv-keys "${KEY_ID}" 2>/dev/null; then
-            echo "✅ Key imported from keyserver.ubuntu.com"
-          else
-            echo "Keyserver import failed. Trying direct ASC download from ftp-master.debian.org..."
-            if curl -fsSL "https://ftp-master.debian.org/keys/release-12.asc" \
-                     | gpg --dearmor \
-                     | sudo tee -a "${KEYRING}" > /dev/null; then
-              echo "✅ Key imported from ftp-master.debian.org ASC"
-            else
-              echo "ftp-master.debian.org failed. Trying salsa.debian.org fallback..."
-              curl -fsSL "https://salsa.debian.org/debian/debian-archive-keyring/-/raw/master/keyrings/debian-archive-bookworm-stable.asc" \
-                | gpg --dearmor \
-                | sudo tee -a "${KEYRING}" > /dev/null
-              echo "✅ Key imported from salsa.debian.org"
-            fi
-          fi
-
-          echo "Verifying key ${KEY_ID} is present in keyring..."
-          gpg --no-default-keyring \
-              --keyring "${KEYRING}" \
-              --list-keys "${KEY_ID}" \
-            && echo "✅ Bookworm key confirmed in keyring" \
-            || { echo "❌ Key still missing after all import attempts – aborting."; exit 1; }
-
       - name: ⚙️ Configure live-build
-        run: |
-          # auto/config contains all configuration parameters.
-          # Call lb config WITHOUT extra arguments so auto/config takes over.
-          # lb requires root (lb_testroot), so use sudo.
-          sudo lb config
-          echo "lb config ✅"
+        run: lb config
 
       - name: 🏗️ Build ISO
         run: |
-          # Run lb build as root (lb_testroot requires root privileges).
-          # Redirect stdout+stderr to build.log AND display it live.
-          sudo lb build 2>&1 | tee build.log; EXIT_CODE=${PIPESTATUS[0]}
-          echo "=== Suche ISO ==="
-          find . -name "*.iso" 2>/dev/null || echo "Keine ISO gefunden"
+          lb build 2>&1 | tee build.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "=== Searching for ISO ==="
+          find . -name "*.iso" 2>/dev/null || echo "No ISO found"
           exit ${EXIT_CODE}
         shell: bash
 
-      - name: 📄 Upload Build Log (immer)
+      - name: 📄 Upload Build Log (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -119,34 +64,17 @@ jobs:
       - name: 📍 Find ISO
         id: find_iso
         run: |
-          # lb build legt die ISO im aktuellen Arbeitsverzeichnis ($GITHUB_WORKSPACE) ab.
-          ISO_PATH=$(find "${GITHUB_WORKSPACE}" -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
-
-          # Fallback: ISO direkt im aktuellen Verzeichnis
+          ISO_PATH=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
           if [ -z "$ISO_PATH" ]; then
-            ISO_PATH=$(ls *.iso 2>/dev/null | head -1)
-            if [ -n "$ISO_PATH" ]; then
-              ISO_PATH="$(pwd)/${ISO_PATH}"
-            fi
-          fi
-
-          if [ -z "$ISO_PATH" ]; then
-            echo "❌ Keine ISO gefunden!"
-            echo "=== Verzeichnisinhalt ==="
+            echo "❌ No ISO found!"
             ls -lah
-            echo "=== Suche nach .iso in gesamt /home/runner ==="
-            find /home/runner -name "*.iso" 2>/dev/null || echo "(keine gefunden)"
             exit 1
           fi
-          echo "✅ ISO gefunden: $ISO_PATH"
+          echo "✅ ISO found: $ISO_PATH"
           ls -lh "$ISO_PATH"
-          DEST="${GITHUB_WORKSPACE}/stupix-linux.iso"
-          sudo cp "$ISO_PATH" "$DEST"
-          sudo chmod 644 "$DEST"
-          if [ ! -f "$DEST" ]; then
-            echo "❌ Kopieren der ISO fehlgeschlagen!"
-            exit 1
-          fi
+          DEST="$(pwd)/stupix-linux.iso"
+          cp "$ISO_PATH" "$DEST"
+          chmod 644 "$DEST"
           echo "iso_path=$DEST" >> $GITHUB_OUTPUT
           ls -lh "$DEST"
 
@@ -164,9 +92,9 @@ jobs:
           name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
           body: |
             # 📦 Stupix Linux ISO
-            Automatisch gebaut aus Commit `${{ github.sha }}`
+            Automatically built from commit `${{ github.sha }}`
             - **Branch:** ${{ github.ref_name }}
-            - **Gebaut am:** ${{ github.event.head_commit.timestamp }}
+            - **Built on:** ${{ github.event.head_commit.timestamp }}
           files: ${{ steps.find_iso.outputs.iso_path }}
           draft: false
           prerelease: false
