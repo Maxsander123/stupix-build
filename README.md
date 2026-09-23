@@ -4,75 +4,135 @@ Build system for the Stupix live OS.
 
 Stupix is a minimal Debian Bookworm based live system designed for server diagnostics.
 It boots entirely from RAM using OverlayFS, obtains an IP address via DHCP,
-and automatically clones https://github.com/Maxsander123/stupix and runs auto.sh on startup.
+and automatically clones and runs the [stupix script repo](https://github.com/Maxsander123/stupix) on startup.
 
-## Repository structure
+## Download
 
-    auto/config                                         - live-build configuration
-    auto/build                                          - build trigger script
-    auto/clean                                          - clean script
-    config/package-lists/stupix.list.chroot             - package list
-    config/hooks/normal/0010-stupix-setup.hook.chroot   - post-install hook (SSH, modules, MOTD)
-    config/includes.chroot/usr/local/bin/stupix-init.sh - boot init script
-    config/includes.chroot/etc/systemd/system/          - systemd unit files
-    .github/workflows/build-iso.yml                     - GitHub Actions ISO build
-
-## Building locally
-
-Requires Debian or Ubuntu host with live-build installed.
-
-    sudo apt-get install live-build debootstrap squashfs-tools xorriso
-    git clone https://github.com/Maxsander123/stupix-build
-    cd stupix-build
-    chmod +x auto/config auto/build auto/clean
-    sudo ./auto/config
-    sudo lb build
-
-The output is: live-image-amd64.hybrid.iso
+Latest ISO from [Releases](https://github.com/Maxsander123/stupix-build/releases/latest).
 
 ## Writing to USB
 
-    sudo dd if=live-image-amd64.hybrid.iso of=/dev/sdX bs=4M status=progress
+```bash
+# Linux
+sudo dd if=stupix-linux.iso of=/dev/sdX bs=4M status=progress && sync
 
-## Boot behavior
+# macOS
+sudo dd if=stupix-linux.iso of=/dev/rdiskX bs=4m && sync
+```
 
-1. System boots from USB or ISO
-2. GRUB loads kernel and initrd
-3. live-boot mounts squashfs read-only, adds OverlayFS write layer in RAM
-4. systemd starts, DHCP is obtained on all ethernet interfaces
-5. stupix-init.service runs: waits for network, clones the stupix repo, executes auto.sh
-6. All diagnostic output is written to /var/log/stupix/
+Replace `/dev/sdX` with your USB device (`lsblk` to find it). **Do not use your system drive.**
 
-## Included tools
+## Boot
 
-- ipmitool, openipmi, freeipmi-tools   (IPMI / iDRAC / BMC)
-- dmidecode, lshw, lspci               (hardware information)
-- smartmontools                        (disk health)
-- nvme-cli                             (NVMe)
-- tcpdump, nmap, iperf3, mtr           (network diagnostics)
-- htop, iotop, sysstat                 (system monitoring)
-- stress-ng, memtester                 (stress and memory tests)
-- openssh-server                       (SSH access into the live system)
-- git, curl, vim, tmux, jq             (utilities)
+Boot from USB. The system:
+1. Loads kernel + initrd via GRUB (UEFI)
+2. Mounts squashfs read-only, adds RAM overlay
+3. Gets DHCP on all ethernet interfaces
+4. Clones the stupix repo and runs `auto.sh`
+
+SSH in after ~30 seconds:
+```
+ssh root@<ip>       # password: stupix
+```
+
+## Log files
+
+All output is written to `/var/log/stupix/`:
+
+| File | Contents |
+|---|---|
+| `check-deps.log` | Tool availability check (runs first) |
+| `serials.log` | All hardware serial numbers |
+| `inventory.json` | Full structured JSON inventory |
+| `init.log` | Boot init, clone progress |
+| `auto.log` | Main log with timestamps |
+| `network.log` | IP, routing, DNS |
+| `system-info.log` | Manufacturer, model, BIOS |
+| `cpu.log` | CPU details |
+| `memory.log` | RAM modules (dmidecode) |
+| `storage.log` | Block devices, NVMe, RAID |
+| `smart.log` | S.M.A.R.T. data per disk |
+| `pci.log` | PCI devices |
+| `usb.log` | USB devices |
+| `ipmi.log` | IPMI chassis, BMC, FRU, sensors, SEL |
+| `hardware-full.log` | Full lshw output |
+| `dmesg-errors.log` | MCE, I/O errors, EDAC, kernel taint |
+| `nic-link.log` | NIC speed/duplex + LLDP neighbors |
+| `raid-hardware.log` | Hardware RAID controllers |
+| `disk-perf.log` | fio sequential + random read per disk |
+| `memtest.log` | memtester 256 MB quick check |
+
+Quick access:
+```bash
+cat /var/log/stupix/serials.log
+python3 -m json.tool /var/log/stupix/inventory.json
+cat /var/log/stupix/dmesg-errors.log
+```
+
+## Building locally
+
+Requires a Debian/Ubuntu host with `live-build`.
+
+```bash
+sudo apt-get install live-build debootstrap squashfs-tools xorriso
+git clone https://github.com/Maxsander123/stupix-build
+cd stupix-build
+sudo lb config
+sudo lb build
+# Output: live-image-amd64.hybrid.iso
+```
+
+### Custom repo source
+
+Override the script repo at build time (Gitea, GitLab, Forgejo, GitHub Enterprise):
+
+```bash
+# Gitea / Forgejo / GitLab — user + token
+sudo STUPIX_REPO=https://gitea.example.com/org/stupix \
+     STUPIX_REPO_USER=myuser \
+     STUPIX_REPO_TOKEN=mytoken \
+     lb build
+
+# GitHub PAT
+sudo STUPIX_REPO=https://github.com/myorg/stupix \
+     STUPIX_REPO_TOKEN=ghp_xxxx \
+     lb build
+```
+
+Credentials are baked into `/etc/stupix/repo.conf` (chmod 600) inside the ISO.
+
+## Repository structure
+
+```
+auto/config                                          live-build configuration + repo env vars
+config/package-lists/stupix.list.chroot              packages installed into the ISO
+config/hooks/normal/0010-stupix-setup.hook.chroot    post-install hook (SSH, MOTD, services)
+config/includes.chroot/usr/local/bin/stupix-init.sh  boot init script (clone + run auto.sh)
+config/includes.chroot/etc/stupix/repo.conf          repo URL + credentials (build-time generated)
+.github/workflows/build-iso.yml                      CI: build → boot test → release
+```
+
+## CI
+
+Every push to `main`:
+1. Builds the ISO with `lb build` (~14 min)
+2. Boots it in QEMU (KVM) and verifies squashfs mounts, network comes up, stupix-init starts
+3. Only publishes a GitHub Release if the boot test passes
 
 ## SSH access
 
-Root login is enabled. Default password: stupix
-Change this in: config/hooks/normal/0010-stupix-setup.hook.chroot
+Root login enabled. Default password: `stupix`
 
-## Log files (written during boot)
+Change in: `config/hooks/normal/0010-stupix-setup.hook.chroot`
 
-All logs are stored in /var/log/stupix/
+## Included tools
 
-    init.log          - boot init, clone progress
-    auto.log          - main log with timestamps
-    network.log       - IP addresses, routing, DNS
-    system-info.log   - manufacturer, model, BIOS
-    cpu.log           - CPU details
-    memory.log        - RAM modules
-    storage.log       - block devices, NVMe, RAID
-    smart.log         - S.M.A.R.T. data for all disks
-    pci.log           - PCI devices
-    usb.log           - USB devices
-    ipmi.log          - IPMI chassis, BMC, FRU, sensors, SEL
-    hardware-full.log - full lshw output
+- `ipmitool`, `openipmi`, `freeipmi-tools` — IPMI / BMC
+- `dmidecode`, `lshw`, `lspci`, `hwinfo` — hardware info
+- `smartmontools`, `nvme-cli`, `sg3-utils`, `lsscsi` — storage
+- `ethtool`, `lldpd`, `tcpdump`, `iperf3`, `mtr` — network
+- `fio` — disk benchmarks
+- `memtester`, `stress-ng` — memory and stress tests
+- `htop`, `iotop`, `sysstat` — monitoring
+- `openssh-server` — SSH access
+- `git`, `curl`, `vim`, `tmux`, `jq`, `python3` — utilities
