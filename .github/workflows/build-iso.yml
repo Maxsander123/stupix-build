@@ -34,7 +34,6 @@ jobs:
             debootstrap \
             xorriso \
             grub-pc \
-            grub-efi-amd64 \
             grub-efi-amd64-signed \
             shim-signed \
             squashfs-tools \
