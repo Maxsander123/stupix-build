@@ -81,4 +81,9 @@ cat > /etc/motd << 'MOTD'
 MOTD
 echo "[hook] MOTD set."
 
+# Regenerate initramfs to ensure live-boot hooks are included
+# (lb_chroot_linux-image is skipped via LB_LINUX_PACKAGES=none)
+update-initramfs -u -k all 2>/dev/null || true
+echo "[hook] initramfs regenerated."
+
 echo "[hook] Stupix setup hook complete."

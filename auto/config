@@ -15,6 +15,5 @@ lb config noauto \
     --apt-recommends false \
     --apt-indices false \
     --keyring-packages debian-archive-keyring \
-    --linux-packages "" \
-    --linux-flavours "" \
+    --linux-packages none \
     "${@}"
