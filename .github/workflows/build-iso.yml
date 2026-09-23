@@ -78,6 +78,123 @@ jobs:
           echo "iso_path=$DEST" >> $GITHUB_OUTPUT
           ls -lh "$DEST"
 
+      - name: 🔍 Boot Test
+        shell: bash
+        run: |
+          set -e
+          ISO="${{ steps.find_iso.outputs.iso_path }}"
+          BOOT_LOG="$(pwd)/boot-test.log"
+
+          echo "Installing QEMU + OVMF..."
+          apt-get install -y --no-install-recommends \
+            qemu-system-x86 ovmf mtools 2>&1 | tail -3
+
+          OVMF=$(find /usr/share/ovmf /usr/share/OVMF -name "OVMF.fd" 2>/dev/null | head -1)
+          echo "OVMF: $OVMF"
+
+          # KVM detection
+          if [ -e /dev/kvm ]; then
+            KVM="-enable-kvm"
+            TIMEOUT=120
+            echo "KVM: available (hardware acceleration)"
+          else
+            KVM=""
+            TIMEOUT=300
+            echo "KVM: NOT available (software emulation, longer timeout)"
+          fi
+
+          # Mount ISO, copy contents, patch GRUB config for headless serial boot
+          mkdir -p /tmp/iso-mount /tmp/iso-build
+          mount -o loop,ro "$ISO" /tmp/iso-mount
+          cp -a /tmp/iso-mount/. /tmp/iso-build/
+          chmod -R u+w /tmp/iso-build
+          umount /tmp/iso-mount
+
+          VMLINUZ=$(basename "$(find /tmp/iso-build/live -name "vmlinuz*" | head -1)")
+          INITRD=$(basename "$(find /tmp/iso-build/live -name "initrd*" | head -1)")
+          echo "Kernel: $VMLINUZ  Initrd: $INITRD"
+
+          # timeout=0 auto-boots first entry; console=ttyS0 routes all output to serial
+          cat > /tmp/iso-build/boot/grub/grub.cfg << GRUBCFG
+          set timeout=0
+          set default=0
+          menuentry "Stupix Boot Test" {
+              linux  /live/${VMLINUZ} boot=live components net.ifnames=0 biosdevname=0 console=ttyS0,115200n8 systemd.journald.forward_to_console=yes
+              initrd /live/${INITRD}
+          }
+          GRUBCFG
+
+          # Repack ISO preserving EFI boot image
+          echo "Repacking ISO with patched GRUB config..."
+          xorriso -as mkisofs \
+            -iso-level 3 \
+            -volid "Stupix Live" \
+            -full-iso9660-filenames \
+            -eltorito-alt-boot \
+            -e boot/grub/efi.img \
+            -no-emul-boot \
+            -isohybrid-gpt-basdat \
+            -o /tmp/stupix-boot-test.iso \
+            /tmp/iso-build 2>&1 | tail -5
+          echo "Test ISO: $(ls -lh /tmp/stupix-boot-test.iso)"
+
+          # Boot in QEMU, capture serial output, kill after timeout
+          echo "Booting ISO in QEMU (timeout: ${TIMEOUT}s)..."
+          timeout "${TIMEOUT}" qemu-system-x86_64 \
+            $KVM \
+            -m 2048 -smp 2 \
+            -drive if=pflash,format=raw,readonly=on,file="$OVMF" \
+            -cdrom /tmp/stupix-boot-test.iso \
+            -boot d \
+            -nographic \
+            -serial mon:stdio \
+            -net nic -net user \
+            2>&1 | tee "$BOOT_LOG" || true
+
+          echo "--- Boot test log tail ---"
+          tail -20 "$BOOT_LOG"
+
+          # Verify key boot milestones
+          FAIL=0
+          if grep -q "squashfs: version" "$BOOT_LOG"; then
+            echo "✅ squashfs mounted"
+          else
+            echo "❌ squashfs NOT mounted — filesystem failed to load"
+            FAIL=1
+          fi
+
+          if grep -qE "Reached target.*network|network-online" "$BOOT_LOG"; then
+            echo "✅ Network reached"
+          else
+            echo "❌ Network target NOT reached"
+            FAIL=1
+          fi
+
+          if grep -q "stupix-init" "$BOOT_LOG"; then
+            echo "✅ stupix-init started"
+          else
+            echo "❌ stupix-init NOT started"
+            FAIL=1
+          fi
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "❌ Boot test FAILED — release will not be published"
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ Boot test passed — proceeding to release"
+
+      - name: 📄 Upload Boot Test Log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-test-log
+          path: boot-test.log
+          retention-days: 5
+          if-no-files-found: warn
+
       - name: 🏷️ Generate Release Tag
         id: tag
         shell: bash
