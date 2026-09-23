@@ -16,4 +16,5 @@ lb config noauto \
     --apt-indices false \
     --keyring-packages debian-archive-keyring \
     --linux-packages none \
+    --build-with-chroot false \
     "${@}"
