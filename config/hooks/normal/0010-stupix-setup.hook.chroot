@@ -45,6 +45,10 @@ echo "[hook] systemd-networkd DHCP configured."
 systemctl enable ssh 2>/dev/null || true
 echo "[hook] SSH service enabled."
 
+# Enable lldpd for LLDP neighbor discovery
+systemctl enable lldpd 2>/dev/null || true
+echo "[hook] lldpd service enabled."
+
 # Enable stupix-init service
 systemctl enable stupix-init.service 2>/dev/null || true
 echo "[hook] stupix-init.service enabled."

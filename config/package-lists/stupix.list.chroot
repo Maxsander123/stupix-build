@@ -46,6 +46,11 @@ sysstat
 # Network analysis
 tcpdump
 nmap
+ethtool
+lldpd
+
+# Benchmarking
+fio
 
 # Stress testing
 stress-ng
