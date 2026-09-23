@@ -80,8 +80,10 @@ jobs:
 
       - name: 🏷️ Generate Release Tag
         id: tag
+        env:
+          GIT_DISCOVERY_ACROSS_FILESYSTEM: "1"
         run: |
-          TAG="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          TAG="v$(date +'%Y.%m.%d')-$(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Tag: $TAG"
 
