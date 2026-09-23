@@ -34,9 +34,11 @@ jobs:
             debootstrap \
             xorriso \
             grub-pc \
+            grub-efi-amd64 \
             grub-efi-amd64-signed \
             shim-signed \
             squashfs-tools \
+            isolinux \
             wget curl rsync cpio gzip bzip2 xz-utils gnupg2 \
             sudo \
             bash
