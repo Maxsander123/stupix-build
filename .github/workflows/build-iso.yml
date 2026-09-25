@@ -246,7 +246,6 @@ jobs:
           apt-get install -y --no-install-recommends \
             live-build debootstrap xorriso squashfs-tools \
             qemu-user-static binfmt-support \
-            grub-efi-arm64-bin \
             debian-archive-keyring \
             wget curl git gnupg2 ca-certificates sudo
           update-binfmts --enable qemu-aarch64 2>/dev/null || true
