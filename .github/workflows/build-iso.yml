@@ -221,9 +221,13 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Tag: $TAG"
 
-  # ── arm64: build + UEFI boot test ────────────────────────────────────────
+  # ── arm64: cross-build on amd64 via qemu-user-static ────────────────────
+  # Using ubuntu-22.04 (amd64) + qemu-user-static is the documented approach
+  # for arm64 live-build ISOs. Running natively on ubuntu-24.04-arm causes
+  # live-build to install amd64-specific packages (grub-efi-amd64-signed,
+  # linux-image-amd64) in the arm64 chroot — a live-build bug for native ARM.
   build-arm64:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04
     container:
       image: debian:bookworm
       options: --privileged
@@ -241,10 +245,13 @@ jobs:
           apt-get update -y
           apt-get install -y --no-install-recommends \
             live-build debootstrap xorriso squashfs-tools \
-            grub-efi-arm64 grub-efi-arm64-bin \
+            qemu-user-static binfmt-support \
+            grub-efi-arm64-bin \
             debian-archive-keyring \
             wget curl git gnupg2 ca-certificates sudo
+          update-binfmts --enable qemu-aarch64 2>/dev/null || true
           echo "live-build: $(lb --version)"
+          echo "qemu-aarch64-static: $(qemu-aarch64-static --version 2>&1 | head -1)"
 
       - name: ⚙️ Configure
         run: lb config
@@ -276,7 +283,7 @@ jobs:
           cp "$ISO" "$(pwd)/stupix-linux-arm64.iso"
           echo "iso_path=$(pwd)/stupix-linux-arm64.iso" >> $GITHUB_OUTPUT
 
-      # ── Test 3: arm64 UEFI (QEMU virt + QEMU_EFI.fd) ────────────────────
+      # ── Test 3: arm64 UEFI (qemu-system-aarch64 on amd64 host) ─────────
       - name: 🔍 Boot Test — arm64 UEFI
         shell: bash
         run: |
@@ -290,11 +297,9 @@ jobs:
           AAVMF=$(find /usr/share -name "QEMU_EFI.fd" -o -name "AAVMF.fd" 2>/dev/null | head -1)
           echo "ARM UEFI firmware: $AAVMF"
 
-          if [ -e /dev/kvm ]; then
-            KVM="-enable-kvm -cpu host"; TIMEOUT=180; echo "KVM: yes"
-          else
-            KVM="-cpu cortex-a57"; TIMEOUT=600; echo "KVM: no (software — will be slow)"
-          fi
+          # No KVM on amd64 host for arm64 — software emulation, longer timeout
+          TIMEOUT=600
+          echo "Software emulation (amd64 host → arm64 guest), timeout: ${TIMEOUT}s"
 
           # Extract ISO, patch grub.cfg for serial console
           # ARM64 QEMU virt uses ttyAMA0 (PL011 UART), not ttyS0
@@ -324,8 +329,9 @@ jobs:
 
           echo "Booting (arm64 UEFI, timeout: ${TIMEOUT}s)..."
           timeout "${TIMEOUT}" qemu-system-aarch64 \
-            -machine virt,gic-version=3 $KVM \
-            -m 2048 \
+            -machine virt,gic-version=3 \
+            -cpu cortex-a57 -smp 4 \
+            -m 4096 \
             -drive if=pflash,format=raw,readonly=on,file="$AAVMF" \
             -cdrom /tmp/stupix-arm64-test.iso -boot d \
             -nographic -serial mon:stdio \

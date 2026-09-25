@@ -51,14 +51,35 @@ echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
 
 # amd64: BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
 # arm64: UEFI only — all ARM servers and modern boards use UEFI
+#
+# Cross-build (arm64 on amd64 host via qemu-user-static): live-build uses
+# the host grub tools for the binary stage instead of trying to install
+# amd64-signed packages in the arm64 chroot — the documented approach.
 case "$STUPIX_ARCH" in
-    amd64) BOOTLOADERS="grub-efi,syslinux" ;;
-    arm64) BOOTLOADERS="grub-efi" ;;
-    *)     BOOTLOADERS="grub-efi" ;;
+    amd64)
+        BOOTLOADERS="grub-efi,syslinux"
+        LINUX_PACKAGES=""
+        CROSS_OPTS=""
+        ;;
+    arm64)
+        BOOTLOADERS="grub-efi"
+        LINUX_PACKAGES="linux-image-arm64"
+        if [ -f "/usr/bin/qemu-aarch64-static" ]; then
+            CROSS_OPTS="--bootstrap-qemu-arch arm64 --bootstrap-qemu-static /usr/bin/qemu-aarch64-static"
+        else
+            CROSS_OPTS=""
+        fi
+        ;;
+    *)
+        BOOTLOADERS="grub-efi"
+        LINUX_PACKAGES=""
+        CROSS_OPTS=""
+        ;;
 esac
 
 lb config noauto \
     --architectures "$STUPIX_ARCH" \
+    ${LINUX_PACKAGES:+--linux-packages "$LINUX_PACKAGES"} \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
     --initramfs live-boot \
@@ -69,4 +90,5 @@ lb config noauto \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
     --keyring-packages debian-archive-keyring \
+    $CROSS_OPTS \
     "${@}"
