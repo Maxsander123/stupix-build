@@ -49,24 +49,23 @@ echo "  STUPIX_REPO_USER = ${STUPIX_REPO_USER:-<none>}"
 echo "  STUPIX_REPO_TOKEN= ${STUPIX_REPO_TOKEN:+<set>}${STUPIX_REPO_TOKEN:-<none>}"
 echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
 
+# Write arch-specific kernel package list.
+# live-build's chroot_package-lists only processes *.list.chroot (exact suffix).
+# Files with *.list.chroot.amd64 / *.list.chroot.arm64 are NEVER loaded.
+# binary_grub-efi installs grub packages temporarily itself via Check_package,
+# so the chroot only needs the kernel package.
+mkdir -p config/package-lists
+echo "linux-image-${STUPIX_ARCH}" > config/package-lists/kernel.list.chroot
+
 # amd64: BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
-# arm64: UEFI only — all ARM servers and modern boards use UEFI
-#
-# Cross-build (arm64 on amd64 host via qemu-user-static): live-build uses
-# the host grub tools for the binary stage instead of trying to install
-# amd64-signed packages in the arm64 chroot — the documented approach.
+# arm64: UEFI only (all ARM servers/modern boards use UEFI), cross-built via qemu-user-static
 case "$STUPIX_ARCH" in
     amd64)
         BOOTLOADERS="grub-efi,syslinux"
-        LINUX_PACKAGES=""
         CROSS_OPTS=""
         ;;
     arm64)
         BOOTLOADERS="grub-efi"
-        # none: live-build appends -${ARCH} to --linux-packages values, so
-        # "linux-image-arm64" becomes "linux-image-arm64-arm64". Skip the
-        # built-in kernel step entirely; kernel comes from arm64-boot.list.chroot.arm64
-        LINUX_PACKAGES="none"
         if [ -f "/usr/bin/qemu-aarch64-static" ]; then
             CROSS_OPTS="--bootstrap-qemu-arch arm64 --bootstrap-qemu-static /usr/bin/qemu-aarch64-static"
         else
@@ -75,14 +74,13 @@ case "$STUPIX_ARCH" in
         ;;
     *)
         BOOTLOADERS="grub-efi"
-        LINUX_PACKAGES=""
         CROSS_OPTS=""
         ;;
 esac
 
 lb config noauto \
     --architectures "$STUPIX_ARCH" \
-    ${LINUX_PACKAGES:+--linux-packages "$LINUX_PACKAGES"} \
+    --linux-packages none \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
     --initramfs live-boot \
