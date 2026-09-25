@@ -255,24 +255,6 @@ jobs:
       - name: ⚙️ Configure
         run: lb config
 
-      - name: 🩹 Create dummy packages for live-build amd64 hardcoding
-        shell: bash
-        run: |
-          # live-build hardcodes amd64 package names (grub-efi-amd64-signed,
-          # linux-image-amd64) even when building for arm64. We create dummy
-          # Architecture:all packages so apt can satisfy those requests without
-          # actually installing amd64 binaries. The real arm64 packages come
-          # from config/package-lists/arm64-boot.list.chroot.arm64.
-          apt-get install -y --no-install-recommends equivs
-          mkdir -p config/packages.chroot
-          for PKG in linux-image-amd64 grub-efi-amd64-signed shim-signed; do
-            printf "Package: %s\nVersion: 0~dummy\nArchitecture: all\nMaintainer: dummy <dummy@dummy>\nDescription: dummy workaround\n" "$PKG" \
-              > /tmp/${PKG}.control
-            equivs-build /tmp/${PKG}.control 2>&1 | tail -2
-            find /tmp -maxdepth 1 -name "${PKG}*.deb" -exec cp {} config/packages.chroot/ \;
-          done
-          ls -lh config/packages.chroot/
-
       - name: 🏗️ Build ISO
         shell: bash
         run: |
