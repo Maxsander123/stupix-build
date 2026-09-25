@@ -6,6 +6,19 @@ Stupix is a minimal Debian Bookworm based live system designed for server diagno
 It boots entirely from RAM using OverlayFS, obtains an IP address via DHCP,
 and automatically clones and runs the [stupix script repo](https://github.com/Maxsander123/stupix) on startup.
 
+## Minimum Requirements
+
+| | amd64 | arm64 |
+|---|---|---|
+| **CPU** | 64-bit x86 (any) | ARMv8-A / ARM64 |
+| **RAM** | 2 GB (4 GB recommended) | 2 GB (4 GB recommended) |
+| **Boot** | Legacy BIOS or UEFI | UEFI |
+| **USB** | ≥ 1 GB | ≥ 1 GB |
+| **Network** | Ethernet with DHCP (needed to clone scripts) | same |
+| **Storage** | none — runs entirely from RAM | same |
+
+> **Raspberry Pi 4/5:** Requires UEFI firmware on the SD card (e.g. [pftf/RPi4-UEFI-Firmware](https://github.com/pftf/RPi4-UEFI-Firmware)). The onboard bootloader alone is not sufficient.
+
 ## Download
 
 Latest ISOs from [Releases](https://github.com/Maxsander123/stupix-build/releases/latest):
