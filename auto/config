@@ -49,14 +49,6 @@ echo "  STUPIX_REPO_USER = ${STUPIX_REPO_USER:-<none>}"
 echo "  STUPIX_REPO_TOKEN= ${STUPIX_REPO_TOKEN:+<set>}${STUPIX_REPO_TOKEN:-<none>}"
 echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
 
-# Write arch-specific kernel package list.
-# live-build's chroot_package-lists only processes *.list.chroot (exact suffix).
-# Files with *.list.chroot.amd64 / *.list.chroot.arm64 are NEVER loaded.
-# binary_grub-efi installs grub packages temporarily itself via Check_package,
-# so the chroot only needs the kernel package.
-mkdir -p config/package-lists
-echo "linux-image-${STUPIX_ARCH}" > config/package-lists/kernel.list.chroot
-
 # amd64: BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
 # arm64: UEFI only (all ARM servers/modern boards use UEFI), cross-built via qemu-user-static
 case "$STUPIX_ARCH" in
@@ -80,7 +72,6 @@ esac
 
 lb config noauto \
     --architectures "$STUPIX_ARCH" \
-    --linux-packages none \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
     --initramfs live-boot \
