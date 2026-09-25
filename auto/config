@@ -33,6 +33,7 @@ set -e
 STUPIX_REPO="${STUPIX_REPO:-https://github.com/Maxsander123/stupix}"
 STUPIX_REPO_USER="${STUPIX_REPO_USER:-}"
 STUPIX_REPO_TOKEN="${STUPIX_REPO_TOKEN:-}"
+STUPIX_ARCH="${STUPIX_ARCH:-amd64}"
 
 mkdir -p config/includes.chroot/etc/stupix
 cat > config/includes.chroot/etc/stupix/repo.conf << REPOCONF
@@ -46,14 +47,23 @@ echo "Repo config baked into ISO:"
 echo "  STUPIX_REPO      = ${STUPIX_REPO}"
 echo "  STUPIX_REPO_USER = ${STUPIX_REPO_USER:-<none>}"
 echo "  STUPIX_REPO_TOKEN= ${STUPIX_REPO_TOKEN:+<set>}${STUPIX_REPO_TOKEN:-<none>}"
+echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
+
+# amd64: BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
+# arm64: UEFI only — all ARM servers and modern boards use UEFI
+case "$STUPIX_ARCH" in
+    amd64) BOOTLOADERS="grub-efi,syslinux" ;;
+    arm64) BOOTLOADERS="grub-efi" ;;
+    *)     BOOTLOADERS="grub-efi" ;;
+esac
 
 lb config noauto \
-    --architectures amd64 \
+    --architectures "$STUPIX_ARCH" \
     --distribution bookworm \
     --archive-areas "main contrib non-free non-free-firmware" \
     --initramfs live-boot \
     --binary-images iso-hybrid \
-    --bootloader grub-efi \
+    --bootloaders "$BOOTLOADERS" \
     --bootappend-live "boot=live components nomodeset net.ifnames=0 biosdevname=0" \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \

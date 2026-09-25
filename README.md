@@ -8,19 +8,24 @@ and automatically clones and runs the [stupix script repo](https://github.com/Ma
 
 ## Download
 
-Latest ISO from [Releases](https://github.com/Maxsander123/stupix-build/releases/latest).
+Latest ISOs from [Releases](https://github.com/Maxsander123/stupix-build/releases/latest):
+
+| File | Architecture | Boot modes |
+|---|---|---|
+| `stupix-linux-amd64.iso` | x86-64 (PC, server) | Legacy BIOS + UEFI |
+| `stupix-linux-arm64.iso` | ARM64 (RPi, ARM server) | UEFI |
 
 ## Writing to USB
 
 ```bash
-# Linux
-sudo dd if=stupix-linux.iso of=/dev/sdX bs=4M status=progress && sync
+# Linux (replace sdX with your USB device — use lsblk to find it)
+sudo dd if=stupix-linux-amd64.iso of=/dev/sdX bs=4M status=progress && sync
 
 # macOS
-sudo dd if=stupix-linux.iso of=/dev/rdiskX bs=4m && sync
+sudo dd if=stupix-linux-amd64.iso of=/dev/rdiskX bs=4m && sync
 ```
 
-Replace `/dev/sdX` with your USB device (`lsblk` to find it). **Do not use your system drive.**
+**Do not use your system drive.** Double-check with `lsblk` before running dd.
 
 ## Boot
 

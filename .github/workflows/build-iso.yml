@@ -10,7 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  # ── amd64: BIOS + UEFI, includes boot test ──────────────────────────────
+  build-amd64:
     runs-on: ubuntu-22.04
     container:
       image: debian:bookworm
@@ -18,45 +19,43 @@ jobs:
 
     env:
       DEBIAN_FRONTEND: noninteractive
+      STUPIX_ARCH: amd64
+
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: 📥 Checkout
         uses: actions/checkout@v4
 
       - name: 🔧 Install build dependencies
         run: |
           apt-get update -y
           apt-get install -y --no-install-recommends \
-            live-build \
-            debootstrap \
-            xorriso \
-            squashfs-tools \
-            grub-efi-amd64 \
-            grub-efi-amd64-signed \
+            live-build debootstrap xorriso squashfs-tools \
+            grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed \
             shim-signed \
-            syslinux-utils \
+            syslinux syslinux-common isolinux syslinux-utils \
             debian-archive-keyring \
-            wget curl git gnupg2 ca-certificates \
-            sudo
-          echo "live-build version: $(lb --version)"
+            wget curl git gnupg2 ca-certificates sudo
+          echo "live-build: $(lb --version)"
 
-      - name: ⚙️ Configure live-build
+      - name: ⚙️ Configure
         run: lb config
 
       - name: 🏗️ Build ISO
+        shell: bash
         run: |
           lb build 2>&1 | tee build.log
           EXIT_CODE=${PIPESTATUS[0]}
-          echo "=== Searching for ISO ==="
           find . -name "*.iso" 2>/dev/null || echo "No ISO found"
           exit ${EXIT_CODE}
-        shell: bash
 
-      - name: 📄 Upload Build Log (always)
+      - name: 📄 Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
+          name: build-log-amd64
           path: build.log
           retention-days: 5
           if-no-files-found: warn
@@ -64,46 +63,33 @@ jobs:
       - name: 📍 Find ISO
         id: find_iso
         run: |
-          ISO_PATH=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
-          if [ -z "$ISO_PATH" ]; then
-            echo "❌ No ISO found!"
-            ls -lah
-            exit 1
-          fi
-          echo "✅ ISO found: $ISO_PATH"
-          ls -lh "$ISO_PATH"
-          DEST="$(pwd)/stupix-linux.iso"
-          cp "$ISO_PATH" "$DEST"
-          chmod 644 "$DEST"
-          echo "iso_path=$DEST" >> $GITHUB_OUTPUT
-          ls -lh "$DEST"
+          ISO=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
+          [ -z "$ISO" ] && { echo "❌ No ISO found"; ls -lah; exit 1; }
+          echo "✅ ISO: $ISO  ($(ls -lh "$ISO" | awk '{print $5}'))"
+          cp "$ISO" "$(pwd)/stupix-linux-amd64.iso"
+          echo "iso_path=$(pwd)/stupix-linux-amd64.iso" >> $GITHUB_OUTPUT
 
-      - name: 🔍 Boot Test
+      - name: 🔍 Boot Test (UEFI via QEMU)
         shell: bash
         run: |
           set -e
           ISO="${{ steps.find_iso.outputs.iso_path }}"
           BOOT_LOG="$(pwd)/boot-test.log"
 
-          echo "Installing QEMU + OVMF..."
           apt-get install -y --no-install-recommends \
             qemu-system-x86 ovmf mtools 2>&1 | tail -3
 
           OVMF=$(find /usr/share/ovmf /usr/share/OVMF -name "OVMF.fd" 2>/dev/null | head -1)
           echo "OVMF: $OVMF"
 
-          # KVM detection
           if [ -e /dev/kvm ]; then
-            KVM="-enable-kvm"
-            TIMEOUT=120
-            echo "KVM: available (hardware acceleration)"
+            KVM="-enable-kvm"; TIMEOUT=120
+            echo "KVM: available"
           else
-            KVM=""
-            TIMEOUT=300
-            echo "KVM: NOT available (software emulation, longer timeout)"
+            KVM=""; TIMEOUT=300
+            echo "KVM: software emulation"
           fi
 
-          # Mount ISO, copy contents, patch GRUB config for headless serial boot
           mkdir -p /tmp/iso-mount /tmp/iso-build
           mount -o loop,ro "$ISO" /tmp/iso-mount
           cp -a /tmp/iso-mount/. /tmp/iso-build/
@@ -114,7 +100,6 @@ jobs:
           INITRD=$(basename "$(find /tmp/iso-build/live -name "initrd*" | head -1)")
           echo "Kernel: $VMLINUZ  Initrd: $INITRD"
 
-          # timeout=0 auto-boots first entry; console=ttyS0 routes all output to serial
           cat > /tmp/iso-build/boot/grub/grub.cfg << GRUBCFG
           set timeout=0
           set default=0
@@ -124,97 +109,169 @@ jobs:
           }
           GRUBCFG
 
-          # Repack ISO preserving EFI boot image
-          echo "Repacking ISO with patched GRUB config..."
           xorriso -as mkisofs \
-            -iso-level 3 \
-            -volid "Stupix Live" \
-            -full-iso9660-filenames \
-            -eltorito-alt-boot \
-            -e boot/grub/efi.img \
-            -no-emul-boot \
+            -iso-level 3 -volid "Stupix Live" -full-iso9660-filenames \
+            -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
             -isohybrid-gpt-basdat \
-            -o /tmp/stupix-boot-test.iso \
-            /tmp/iso-build 2>&1 | tail -5
-          echo "Test ISO: $(ls -lh /tmp/stupix-boot-test.iso)"
+            -o /tmp/stupix-boot-test.iso /tmp/iso-build 2>&1 | tail -5
 
-          # Boot in QEMU, capture serial output, kill after timeout
-          echo "Booting ISO in QEMU (timeout: ${TIMEOUT}s)..."
+          echo "Booting in QEMU (timeout: ${TIMEOUT}s)..."
           timeout "${TIMEOUT}" qemu-system-x86_64 \
-            $KVM \
-            -m 2048 -smp 2 \
+            $KVM -m 2048 -smp 2 \
             -drive if=pflash,format=raw,readonly=on,file="$OVMF" \
-            -cdrom /tmp/stupix-boot-test.iso \
-            -boot d \
-            -nographic \
-            -serial mon:stdio \
+            -cdrom /tmp/stupix-boot-test.iso -boot d \
+            -nographic -serial mon:stdio \
             -net nic -net user \
             2>&1 | tee "$BOOT_LOG" || true
 
-          echo "--- Boot test log tail ---"
           tail -20 "$BOOT_LOG"
 
-          # Verify key boot milestones
           FAIL=0
-          if grep -q "squashfs: version" "$BOOT_LOG"; then
-            echo "✅ squashfs mounted"
-          else
-            echo "❌ squashfs NOT mounted — filesystem failed to load"
-            FAIL=1
-          fi
+          grep -q "squashfs: version" "$BOOT_LOG" \
+            && echo "✅ squashfs mounted" || { echo "❌ squashfs NOT mounted"; FAIL=1; }
+          grep -qE "Reached target.*network|network-online" "$BOOT_LOG" \
+            && echo "✅ Network reached" || { echo "❌ Network NOT reached"; FAIL=1; }
+          grep -q "stupix-init" "$BOOT_LOG" \
+            && echo "✅ stupix-init started" || { echo "❌ stupix-init NOT started"; FAIL=1; }
 
-          if grep -qE "Reached target.*network|network-online" "$BOOT_LOG"; then
-            echo "✅ Network reached"
-          else
-            echo "❌ Network target NOT reached"
-            FAIL=1
-          fi
+          [ "$FAIL" -eq 1 ] && { echo "❌ Boot test FAILED"; exit 1; }
+          echo "✅ Boot test passed"
 
-          if grep -q "stupix-init" "$BOOT_LOG"; then
-            echo "✅ stupix-init started"
-          else
-            echo "❌ stupix-init NOT started"
-            FAIL=1
-          fi
-
-          if [ "$FAIL" -eq 1 ]; then
-            echo ""
-            echo "❌ Boot test FAILED — release will not be published"
-            exit 1
-          fi
-
-          echo ""
-          echo "✅ Boot test passed — proceeding to release"
-
-      - name: 📄 Upload Boot Test Log (always)
+      - name: 📄 Upload Boot Test Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: boot-test-log
+          name: boot-test-log-amd64
           path: boot-test.log
           retention-days: 5
           if-no-files-found: warn
+
+      - name: 📦 Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stupix-linux-amd64
+          path: stupix-linux-amd64.iso
+          retention-days: 7
 
       - name: 🏷️ Generate Release Tag
         id: tag
         shell: bash
         run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          TAG="v$(date +'%Y.%m.%d')-${SHORT_SHA}"
+          TAG="v$(date +'%Y.%m.%d')-${GITHUB_SHA:0:7}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Tag: $TAG"
+
+  # ── arm64: UEFI only ─────────────────────────────────────────────────────
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: debian:bookworm
+      options: --privileged
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      STUPIX_ARCH: arm64
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Install build dependencies
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            live-build debootstrap xorriso squashfs-tools \
+            grub-efi-arm64 grub-efi-arm64-bin \
+            debian-archive-keyring \
+            wget curl git gnupg2 ca-certificates sudo
+          echo "live-build: $(lb --version)"
+
+      - name: ⚙️ Configure
+        run: lb config
+
+      - name: 🏗️ Build ISO
+        shell: bash
+        run: |
+          lb build 2>&1 | tee build.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          find . -name "*.iso" 2>/dev/null || echo "No ISO found"
+          exit ${EXIT_CODE}
+
+      - name: 📄 Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-arm64
+          path: build.log
+          retention-days: 5
+          if-no-files-found: warn
+
+      - name: 📍 Find and rename ISO
+        id: find_iso
+        run: |
+          ISO=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
+          [ -z "$ISO" ] && { echo "❌ No ISO found"; ls -lah; exit 1; }
+          echo "✅ ISO: $ISO  ($(ls -lh "$ISO" | awk '{print $5}'))"
+          cp "$ISO" "$(pwd)/stupix-linux-arm64.iso"
+          echo "iso_path=$(pwd)/stupix-linux-arm64.iso" >> $GITHUB_OUTPUT
+
+      - name: 📦 Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stupix-linux-arm64
+          path: stupix-linux-arm64.iso
+          retention-days: 7
+
+  # ── Release: publishes both ISOs; requires amd64 boot test to pass ───────
+  release:
+    needs: [build-amd64, build-arm64]
+    if: always() && needs.build-amd64.result == 'success'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: 📥 Download amd64 ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: stupix-linux-amd64
+          path: release/
+
+      - name: 📥 Download arm64 ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: stupix-linux-arm64
+          path: release/
+        continue-on-error: true
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: "Stupix Linux ${{ steps.tag.outputs.tag }}"
+          tag_name: ${{ needs.build-amd64.outputs.tag }}
+          name: "Stupix Linux ${{ needs.build-amd64.outputs.tag }}"
           body: |
-            # 📦 Stupix Linux ISO
+            # Stupix Linux ISO
+
             Automatically built from commit `${{ github.sha }}`
             - **Branch:** ${{ github.ref_name }}
-            - **Built on:** ${{ github.event.head_commit.timestamp }}
-          files: ${{ steps.find_iso.outputs.iso_path }}
+
+            ## Downloads
+
+            | File | Architecture | Boot |
+            |---|---|---|
+            | `stupix-linux-amd64.iso` | x86-64 | BIOS + UEFI |
+            | `stupix-linux-arm64.iso` | ARM64 | UEFI |
+
+            ## Flash to USB
+
+            ```bash
+            # Linux
+            sudo dd if=stupix-linux-amd64.iso of=/dev/sdX bs=4M status=progress && sync
+
+            # macOS
+            sudo dd if=stupix-linux-amd64.iso of=/dev/rdiskX bs=4m && sync
+            ```
+
+            SSH after ~30s: `ssh root@<ip>` · Password: `stupix`
+          files: release/*.iso
           draft: false
           prerelease: false
         env:
