@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  # ── amd64: BIOS + UEFI, includes boot test ──────────────────────────────
+  # ── amd64: build + UEFI boot test + BIOS boot test ──────────────────────
   build-amd64:
     runs-on: ubuntu-22.04
     container:
@@ -33,8 +33,7 @@ jobs:
           apt-get update -y
           apt-get install -y --no-install-recommends \
             live-build debootstrap xorriso squashfs-tools \
-            grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed \
-            shim-signed \
+            grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed shim-signed \
             syslinux syslinux-common isolinux syslinux-utils \
             debian-archive-keyring \
             wget curl git gnupg2 ca-certificates sudo
@@ -62,48 +61,45 @@ jobs:
 
       - name: 📍 Find ISO
         id: find_iso
+        shell: bash
         run: |
-          ISO=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
+          ISO=$(find . -maxdepth 2 -name "*.iso" -type f | head -1)
           [ -z "$ISO" ] && { echo "❌ No ISO found"; ls -lah; exit 1; }
           echo "✅ ISO: $ISO  ($(ls -lh "$ISO" | awk '{print $5}'))"
           cp "$ISO" "$(pwd)/stupix-linux-amd64.iso"
           echo "iso_path=$(pwd)/stupix-linux-amd64.iso" >> $GITHUB_OUTPUT
 
-      - name: 🔍 Boot Test (UEFI via QEMU)
+      # ── Test 1: amd64 UEFI (OVMF) ────────────────────────────────────────
+      - name: 🔍 Boot Test — amd64 UEFI
         shell: bash
         run: |
           set -e
           ISO="${{ steps.find_iso.outputs.iso_path }}"
-          BOOT_LOG="$(pwd)/boot-test.log"
+          BOOT_LOG="$(pwd)/boot-uefi.log"
 
-          apt-get install -y --no-install-recommends \
-            qemu-system-x86 ovmf mtools 2>&1 | tail -3
+          apt-get install -y --no-install-recommends qemu-system-x86 ovmf mtools 2>&1 | tail -3
 
           OVMF=$(find /usr/share/ovmf /usr/share/OVMF -name "OVMF.fd" 2>/dev/null | head -1)
           echo "OVMF: $OVMF"
 
-          if [ -e /dev/kvm ]; then
-            KVM="-enable-kvm"; TIMEOUT=120
-            echo "KVM: available"
-          else
-            KVM=""; TIMEOUT=300
-            echo "KVM: software emulation"
-          fi
+          if [ -e /dev/kvm ]; then KVM="-enable-kvm"; TIMEOUT=120; echo "KVM: yes"
+          else KVM=""; TIMEOUT=300; echo "KVM: no (software)"; fi
 
-          mkdir -p /tmp/iso-mount /tmp/iso-build
+          # Extract ISO, patch grub.cfg for serial console + instant boot
+          mkdir -p /tmp/iso-mount /tmp/iso-uefi
           mount -o loop,ro "$ISO" /tmp/iso-mount
-          cp -a /tmp/iso-mount/. /tmp/iso-build/
-          chmod -R u+w /tmp/iso-build
+          cp -a /tmp/iso-mount/. /tmp/iso-uefi/
+          chmod -R u+w /tmp/iso-uefi
           umount /tmp/iso-mount
 
-          VMLINUZ=$(basename "$(find /tmp/iso-build/live -name "vmlinuz*" | head -1)")
-          INITRD=$(basename "$(find /tmp/iso-build/live -name "initrd*" | head -1)")
+          VMLINUZ=$(basename "$(find /tmp/iso-uefi/live -name "vmlinuz*" | head -1)")
+          INITRD=$(basename "$(find /tmp/iso-uefi/live -name "initrd*" | head -1)")
           echo "Kernel: $VMLINUZ  Initrd: $INITRD"
 
-          cat > /tmp/iso-build/boot/grub/grub.cfg << GRUBCFG
+          cat > /tmp/iso-uefi/boot/grub/grub.cfg << GRUBCFG
           set timeout=0
           set default=0
-          menuentry "Stupix Boot Test" {
+          menuentry "Stupix UEFI Test" {
               linux  /live/${VMLINUZ} boot=live components net.ifnames=0 biosdevname=0 console=ttyS0,115200n8 systemd.journald.forward_to_console=yes
               initrd /live/${INITRD}
           }
@@ -113,36 +109,100 @@ jobs:
             -iso-level 3 -volid "Stupix Live" -full-iso9660-filenames \
             -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
             -isohybrid-gpt-basdat \
-            -o /tmp/stupix-boot-test.iso /tmp/iso-build 2>&1 | tail -5
+            -o /tmp/stupix-uefi-test.iso /tmp/iso-uefi 2>&1 | tail -3
 
-          echo "Booting in QEMU (timeout: ${TIMEOUT}s)..."
+          echo "Booting (UEFI, timeout: ${TIMEOUT}s)..."
           timeout "${TIMEOUT}" qemu-system-x86_64 \
             $KVM -m 2048 -smp 2 \
             -drive if=pflash,format=raw,readonly=on,file="$OVMF" \
-            -cdrom /tmp/stupix-boot-test.iso -boot d \
+            -cdrom /tmp/stupix-uefi-test.iso -boot d \
             -nographic -serial mon:stdio \
             -net nic -net user \
             2>&1 | tee "$BOOT_LOG" || true
 
           tail -20 "$BOOT_LOG"
-
           FAIL=0
-          grep -q "squashfs: version" "$BOOT_LOG" \
-            && echo "✅ squashfs mounted" || { echo "❌ squashfs NOT mounted"; FAIL=1; }
-          grep -qE "Reached target.*network|network-online" "$BOOT_LOG" \
-            && echo "✅ Network reached" || { echo "❌ Network NOT reached"; FAIL=1; }
-          grep -q "stupix-init" "$BOOT_LOG" \
-            && echo "✅ stupix-init started" || { echo "❌ stupix-init NOT started"; FAIL=1; }
+          grep -q "squashfs: version" "$BOOT_LOG"     && echo "✅ squashfs" || { echo "❌ squashfs"; FAIL=1; }
+          grep -qE "network-online|Reached target.*network" "$BOOT_LOG" && echo "✅ network" || { echo "❌ network"; FAIL=1; }
+          grep -q "stupix-init" "$BOOT_LOG"            && echo "✅ stupix-init" || { echo "❌ stupix-init"; FAIL=1; }
+          [ "$FAIL" -eq 1 ] && { echo "❌ amd64 UEFI boot test FAILED"; exit 1; }
+          echo "✅ amd64 UEFI boot test passed"
 
-          [ "$FAIL" -eq 1 ] && { echo "❌ Boot test FAILED"; exit 1; }
-          echo "✅ Boot test passed"
+      # ── Test 2: amd64 BIOS (SeaBIOS via isolinux) ────────────────────────
+      - name: 🔍 Boot Test — amd64 BIOS
+        shell: bash
+        run: |
+          set -e
+          ISO="${{ steps.find_iso.outputs.iso_path }}"
+          BOOT_LOG="$(pwd)/boot-bios.log"
 
-      - name: 📄 Upload Boot Test Log
+          if [ -e /dev/kvm ]; then KVM="-enable-kvm"; TIMEOUT=120; echo "KVM: yes"
+          else KVM=""; TIMEOUT=300; echo "KVM: no (software)"; fi
+
+          # Extract ISO, patch isolinux configs for serial console + instant boot
+          mkdir -p /tmp/iso-mount-bios /tmp/iso-bios
+          mount -o loop,ro "$ISO" /tmp/iso-mount-bios
+          cp -a /tmp/iso-mount-bios/. /tmp/iso-bios/
+          chmod -R u+w /tmp/iso-bios
+          umount /tmp/iso-mount-bios
+
+          echo "=== isolinux config files ==="
+          find /tmp/iso-bios/isolinux -name "*.cfg" | head -20 || echo "no isolinux dir"
+          find /tmp/iso-bios/isolinux -name "*.cfg" -exec cat {} \; 2>/dev/null | head -40 || true
+
+          # Patch all isolinux .cfg files: timeout=0, add serial console, remove quiet/splash
+          for cfg in /tmp/iso-bios/isolinux/*.cfg; do
+            [ -f "$cfg" ] || continue
+            # Set timeout to 0 (isolinux units: 1/10s, so 0 = no wait)
+            sed -i 's/^TIMEOUT.*/TIMEOUT 0/I' "$cfg"
+            sed -i 's/^timeout.*/timeout 0/' "$cfg"
+            # Remove quiet and splash from append lines
+            sed -i 's/ quiet\b//g; s/ splash\b//g' "$cfg"
+            # Add serial console to append lines (avoid duplicates)
+            grep -q "console=ttyS0" "$cfg" || \
+              sed -i '/^[[:space:]]*append /s/$/ console=ttyS0,115200n8 systemd.journald.forward_to_console=yes/' "$cfg"
+          done
+
+          echo "=== patched isolinux configs ==="
+          find /tmp/iso-bios/isolinux -name "*.cfg" -exec cat {} \; 2>/dev/null | head -40 || true
+
+          # Find isohdpfx.bin for hybrid MBR
+          ISOHDPFX=$(find /usr/lib/ISOLINUX /usr/share/syslinux -name "isohdpfx.bin" 2>/dev/null | head -1)
+          echo "isohdpfx.bin: $ISOHDPFX"
+
+          # Repack ISO with BIOS El Torito boot record
+          XORRISO_ARGS="-iso-level 3 -volid Stupix_Live -full-iso9660-filenames"
+          XORRISO_ARGS="$XORRISO_ARGS -b isolinux/isolinux.bin -c isolinux/boot.cat"
+          XORRISO_ARGS="$XORRISO_ARGS -no-emul-boot -boot-load-size 4 -boot-info-table"
+          [ -n "$ISOHDPFX" ] && XORRISO_ARGS="$XORRISO_ARGS -isohybrid-mbr $ISOHDPFX"
+
+          xorriso -as mkisofs $XORRISO_ARGS \
+            -o /tmp/stupix-bios-test.iso /tmp/iso-bios 2>&1 | tail -5
+
+          echo "Booting (BIOS/SeaBIOS, timeout: ${TIMEOUT}s)..."
+          timeout "${TIMEOUT}" qemu-system-x86_64 \
+            $KVM -m 2048 -smp 2 \
+            -cdrom /tmp/stupix-bios-test.iso -boot d \
+            -nographic -serial mon:stdio \
+            -net nic -net user \
+            2>&1 | tee "$BOOT_LOG" || true
+
+          tail -20 "$BOOT_LOG"
+          FAIL=0
+          grep -q "squashfs: version" "$BOOT_LOG"     && echo "✅ squashfs" || { echo "❌ squashfs"; FAIL=1; }
+          grep -qE "network-online|Reached target.*network" "$BOOT_LOG" && echo "✅ network" || { echo "❌ network"; FAIL=1; }
+          grep -q "stupix-init" "$BOOT_LOG"            && echo "✅ stupix-init" || { echo "❌ stupix-init"; FAIL=1; }
+          [ "$FAIL" -eq 1 ] && { echo "❌ amd64 BIOS boot test FAILED"; exit 1; }
+          echo "✅ amd64 BIOS boot test passed"
+
+      - name: 📄 Upload Boot Test Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: boot-test-log-amd64
-          path: boot-test.log
+          name: boot-test-logs-amd64
+          path: |
+            boot-uefi.log
+            boot-bios.log
           retention-days: 5
           if-no-files-found: warn
 
@@ -161,7 +221,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Tag: $TAG"
 
-  # ── arm64: UEFI only ─────────────────────────────────────────────────────
+  # ── arm64: build + UEFI boot test ────────────────────────────────────────
   build-arm64:
     runs-on: ubuntu-24.04-arm
     container:
@@ -206,14 +266,88 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
-      - name: 📍 Find and rename ISO
+      - name: 📍 Find ISO
         id: find_iso
+        shell: bash
         run: |
-          ISO=$(find . -maxdepth 2 -name "*.iso" -type f 2>/dev/null | head -1)
+          ISO=$(find . -maxdepth 2 -name "*.iso" -type f | head -1)
           [ -z "$ISO" ] && { echo "❌ No ISO found"; ls -lah; exit 1; }
           echo "✅ ISO: $ISO  ($(ls -lh "$ISO" | awk '{print $5}'))"
           cp "$ISO" "$(pwd)/stupix-linux-arm64.iso"
           echo "iso_path=$(pwd)/stupix-linux-arm64.iso" >> $GITHUB_OUTPUT
+
+      # ── Test 3: arm64 UEFI (QEMU virt + QEMU_EFI.fd) ────────────────────
+      - name: 🔍 Boot Test — arm64 UEFI
+        shell: bash
+        run: |
+          set -e
+          ISO="${{ steps.find_iso.outputs.iso_path }}"
+          BOOT_LOG="$(pwd)/boot-arm64-uefi.log"
+
+          apt-get install -y --no-install-recommends \
+            qemu-system-arm qemu-efi-aarch64 mtools 2>&1 | tail -3
+
+          AAVMF=$(find /usr/share -name "QEMU_EFI.fd" -o -name "AAVMF.fd" 2>/dev/null | head -1)
+          echo "ARM UEFI firmware: $AAVMF"
+
+          if [ -e /dev/kvm ]; then
+            KVM="-enable-kvm -cpu host"; TIMEOUT=180; echo "KVM: yes"
+          else
+            KVM="-cpu cortex-a57"; TIMEOUT=600; echo "KVM: no (software — will be slow)"
+          fi
+
+          # Extract ISO, patch grub.cfg for serial console
+          # ARM64 QEMU virt uses ttyAMA0 (PL011 UART), not ttyS0
+          mkdir -p /tmp/iso-mount-arm64 /tmp/iso-arm64
+          mount -o loop,ro "$ISO" /tmp/iso-mount-arm64
+          cp -a /tmp/iso-mount-arm64/. /tmp/iso-arm64/
+          chmod -R u+w /tmp/iso-arm64
+          umount /tmp/iso-mount-arm64
+
+          VMLINUZ=$(basename "$(find /tmp/iso-arm64/live -name "vmlinuz*" | head -1)")
+          INITRD=$(basename "$(find /tmp/iso-arm64/live -name "initrd*" | head -1)")
+          echo "Kernel: $VMLINUZ  Initrd: $INITRD"
+
+          cat > /tmp/iso-arm64/boot/grub/grub.cfg << GRUBCFG
+          set timeout=0
+          set default=0
+          menuentry "Stupix ARM64 UEFI Test" {
+              linux  /live/${VMLINUZ} boot=live components net.ifnames=0 biosdevname=0 console=ttyAMA0,115200n8 systemd.journald.forward_to_console=yes
+              initrd /live/${INITRD}
+          }
+          GRUBCFG
+
+          xorriso -as mkisofs \
+            -iso-level 3 -volid "Stupix Live" -full-iso9660-filenames \
+            -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
+            -o /tmp/stupix-arm64-test.iso /tmp/iso-arm64 2>&1 | tail -3
+
+          echo "Booting (arm64 UEFI, timeout: ${TIMEOUT}s)..."
+          timeout "${TIMEOUT}" qemu-system-aarch64 \
+            -machine virt,gic-version=3 $KVM \
+            -m 2048 \
+            -drive if=pflash,format=raw,readonly=on,file="$AAVMF" \
+            -cdrom /tmp/stupix-arm64-test.iso -boot d \
+            -nographic -serial mon:stdio \
+            -net nic -net user \
+            2>&1 | tee "$BOOT_LOG" || true
+
+          tail -20 "$BOOT_LOG"
+          FAIL=0
+          grep -q "squashfs: version" "$BOOT_LOG"     && echo "✅ squashfs" || { echo "❌ squashfs"; FAIL=1; }
+          grep -qE "network-online|Reached target.*network" "$BOOT_LOG" && echo "✅ network" || { echo "❌ network"; FAIL=1; }
+          grep -q "stupix-init" "$BOOT_LOG"            && echo "✅ stupix-init" || { echo "❌ stupix-init"; FAIL=1; }
+          [ "$FAIL" -eq 1 ] && { echo "❌ arm64 UEFI boot test FAILED"; exit 1; }
+          echo "✅ arm64 UEFI boot test passed"
+
+      - name: 📄 Upload Boot Test Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-test-log-arm64
+          path: boot-arm64-uefi.log
+          retention-days: 5
+          if-no-files-found: warn
 
       - name: 📦 Upload ISO artifact
         uses: actions/upload-artifact@v4
@@ -222,10 +356,10 @@ jobs:
           path: stupix-linux-arm64.iso
           retention-days: 7
 
-  # ── Release: publishes both ISOs; requires amd64 boot test to pass ───────
+  # ── Release: alle 3 Tests müssen bestehen ────────────────────────────────
   release:
     needs: [build-amd64, build-arm64]
-    if: always() && needs.build-amd64.result == 'success'
+    # Kein always() — beide Jobs müssen success sein
     runs-on: ubuntu-22.04
 
     steps:
@@ -240,7 +374,6 @@ jobs:
         with:
           name: stupix-linux-arm64
           path: release/
-        continue-on-error: true
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -250,27 +383,31 @@ jobs:
           body: |
             # Stupix Linux ISO
 
-            Automatically built from commit `${{ github.sha }}`
-            - **Branch:** ${{ github.ref_name }}
+            Automatically built and boot-tested from commit `${{ github.sha }}`
+
+            **All three boot tests passed before this release was published:**
+            - ✅ amd64 BIOS (SeaBIOS / isolinux)
+            - ✅ amd64 UEFI (OVMF / grub-efi)
+            - ✅ arm64 UEFI (QEMU_EFI / grub-efi)
 
             ## Downloads
 
-            | File | Architecture | Boot |
+            | File | Architecture | Boot modes |
             |---|---|---|
-            | `stupix-linux-amd64.iso` | x86-64 | BIOS + UEFI |
-            | `stupix-linux-arm64.iso` | ARM64 | UEFI |
+            | `stupix-linux-amd64.iso` | x86-64 (PC, server) | Legacy BIOS + UEFI |
+            | `stupix-linux-arm64.iso` | ARM64 (RPi, ARM server) | UEFI |
 
             ## Flash to USB
 
             ```bash
-            # Linux
+            # Linux (replace sdX — use lsblk to find your USB drive)
             sudo dd if=stupix-linux-amd64.iso of=/dev/sdX bs=4M status=progress && sync
 
             # macOS
             sudo dd if=stupix-linux-amd64.iso of=/dev/rdiskX bs=4m && sync
             ```
 
-            SSH after ~30s: `ssh root@<ip>` · Password: `stupix`
+            SSH after ~30 s: `ssh root@<ip>` · Password: `stupix`
           files: release/*.iso
           draft: false
           prerelease: false
