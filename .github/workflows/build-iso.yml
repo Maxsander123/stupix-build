@@ -166,8 +166,10 @@ jobs:
           echo "=== patched isolinux configs ==="
           find /tmp/iso-bios/isolinux -name "*.cfg" -exec cat {} \; 2>/dev/null | head -40 || true
 
-          # Find isohdpfx.bin for hybrid MBR
-          ISOHDPFX=$(find /usr/lib/ISOLINUX /usr/share/syslinux -name "isohdpfx.bin" 2>/dev/null | head -1)
+          # Find isohdpfx.bin (no pipeline — find exits 1 on missing paths, breaks set -e)
+          ISOHDPFX=""
+          for _f in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/bios/isohdpfx.bin /usr/share/syslinux/isohdpfx.bin; do
+            [ -f "$_f" ] && { ISOHDPFX="$_f"; break; }; done
           echo "isohdpfx.bin: $ISOHDPFX"
 
           # Repack ISO with BIOS El Torito boot record
