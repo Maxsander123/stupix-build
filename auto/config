@@ -63,7 +63,10 @@ case "$STUPIX_ARCH" in
         ;;
     arm64)
         BOOTLOADERS="grub-efi"
-        LINUX_PACKAGES="linux-image-arm64"
+        # none: live-build appends -${ARCH} to --linux-packages values, so
+        # "linux-image-arm64" becomes "linux-image-arm64-arm64". Skip the
+        # built-in kernel step entirely; kernel comes from arm64-boot.list.chroot.arm64
+        LINUX_PACKAGES="none"
         if [ -f "/usr/bin/qemu-aarch64-static" ]; then
             CROSS_OPTS="--bootstrap-qemu-arch arm64 --bootstrap-qemu-static /usr/bin/qemu-aarch64-static"
         else
