@@ -29,7 +29,7 @@ case "$MODE" in
         TIMEOUT=${BOOT_TIMEOUT:-1500}
         FW="-machine virt -cpu cortex-a57 -smp 4
             -bios $(ovmf /usr/share/qemu-efi-aarch64/QEMU_EFI.fd /usr/share/AAVMF/QEMU_EFI.fd)"
-        NET="-device virtio-net-pci,netdev=n0"
+        NET="-device virtio-net-pci,netdev=n0,romfile="
         ;;
     *)
         QEMU=qemu-system-x86_64

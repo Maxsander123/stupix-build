@@ -71,6 +71,13 @@ jobs:
           echo "iso_path=$(pwd)/stupix-linux-amd64.iso" >> $GITHUB_OUTPUT
 
       # ── Boot tests: the unmodified ISO, as CD and as USB stick ──────────
+      - name: 📦 Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stupix-linux-amd64
+          path: stupix-linux-amd64.iso
+          retention-days: 7
+
       - name: 🔧 Install QEMU + OVMF
         run: apt-get install -y --no-install-recommends qemu-system-x86 ovmf
 
@@ -97,13 +104,6 @@ jobs:
           path: boot-*.log
           retention-days: 5
           if-no-files-found: warn
-
-      - name: 📦 Upload ISO artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: stupix-linux-amd64
-          path: stupix-linux-amd64.iso
-          retention-days: 7
 
       - name: 🏷️ Generate Release Tag
         id: tag
@@ -175,6 +175,13 @@ jobs:
           echo "iso_path=$(pwd)/stupix-linux-arm64.iso" >> $GITHUB_OUTPUT
 
       # ── Boot tests: arm64 UEFI, software-emulated (no KVM on amd64 host) ─
+      - name: 📦 Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stupix-linux-arm64
+          path: stupix-linux-arm64.iso
+          retention-days: 7
+
       - name: 🔧 Install QEMU + AAVMF
         run: apt-get install -y --no-install-recommends qemu-system-arm qemu-efi-aarch64
 
@@ -192,13 +199,6 @@ jobs:
           path: boot-*.log
           retention-days: 5
           if-no-files-found: warn
-
-      - name: 📦 Upload ISO artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: stupix-linux-arm64
-          path: stupix-linux-arm64.iso
-          retention-days: 7
 
   # ── Release: every boot test must pass ────────────────────────────────
   release:
