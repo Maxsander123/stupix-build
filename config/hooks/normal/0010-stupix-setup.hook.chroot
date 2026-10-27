@@ -37,8 +37,10 @@ Name=eth* en* ens* eno* enp* em*
 DHCP=yes
 NETCONF
 
-systemctl enable systemd-networkd 2>/dev/null || true
-systemctl enable systemd-resolved 2>/dev/null || true
+systemctl enable systemd-networkd
+systemctl enable systemd-resolved
+# ifupdown comes in via debootstrap; networkd owns the NICs, so keep it out of the way
+systemctl disable networking.service 2>/dev/null || true
 echo "[hook] systemd-networkd DHCP configured."
 
 # Enable SSH service
@@ -91,7 +93,6 @@ MOTD
 echo "[hook] MOTD set."
 
 # Regenerate initramfs to ensure live-boot hooks are included
-# (lb_chroot_linux-image is skipped via LB_LINUX_PACKAGES=none)
 update-initramfs -u -k all 2>/dev/null || true
 echo "[hook] initramfs regenerated."
 

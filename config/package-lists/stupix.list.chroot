@@ -4,6 +4,7 @@ live-boot
 # Network / DHCP
 isc-dhcp-client
 iproute2
+systemd-resolved
 iputils-ping
 curl
 wget

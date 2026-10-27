@@ -1,0 +1,35 @@
+#!/bin/sh
+# =====================================================
+# Stupix bootloader hook
+# Runs in binary/ during lb build, before the ISO is created.
+#
+# live-build's defaults wait forever at the boot menu (isolinux
+# "timeout 0", no GRUB timeout) and only draw on the screen.
+# Stupix must boot unattended on servers, VMs and over IPMI SOL:
+#   - auto-boot the default entry after 5 seconds
+#   - mirror the menu on the first serial port (ttyS0 / COM1)
+#   - no beep
+# =====================================================
+
+set -e
+
+# ---- BIOS: isolinux (amd64 only) ----
+if [ -f isolinux/isolinux.cfg ]; then
+    cat > isolinux/isolinux.cfg << 'EOF'
+serial 0 115200
+include menu.cfg
+default vesamenu.c32
+prompt 0
+timeout 50
+EOF
+    echo "[hook] isolinux: 5s auto-boot + serial console"
+fi
+
+# ---- UEFI: GRUB (amd64 + arm64) ----
+if [ -f boot/grub/config.cfg ]; then
+    sed -i '/^insmod play$/d; /^play /d' boot/grub/config.cfg
+    sed -i 's/^terminal_output gfxterm$/if serial --unit=0 --speed=115200; then\n    terminal_input console serial\n    terminal_output gfxterm serial\nelse\n    terminal_output gfxterm\nfi/' boot/grub/config.cfg
+    sed -i 's/^set default=0$/set default=0\nset timeout=5\nset timeout_style=menu/' boot/grub/config.cfg
+    grep -q '^set timeout=5' boot/grub/config.cfg
+    echo "[hook] grub: 5s auto-boot + serial console"
+fi

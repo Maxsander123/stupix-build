@@ -5,12 +5,13 @@ Wants=network-online.target
 ConditionPathExists=!/opt/stupix
 
 [Service]
-Type=oneshot
+# Not oneshot: auto.sh runs long diagnostics (fio, memtester, ...) that must
+# neither hold up boot nor be killed by a start timeout.
+Type=exec
 ExecStart=/usr/local/bin/stupix-init.sh
 RemainAfterExit=yes
 StandardOutput=journal+console
 StandardError=journal+console
-TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
