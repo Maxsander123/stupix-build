@@ -42,11 +42,17 @@ sudo dd if=stupix-linux-amd64.iso of=/dev/rdiskX bs=4m && sync
 
 ## Boot
 
-Boot from USB. The system:
-1. Loads kernel + initrd via GRUB (UEFI)
+Boot from USB stick, BMC virtual media or as a VM CD-ROM — legacy BIOS, UEFI and
+UEFI Secure Boot all work. The system:
+1. Shows the boot menu (isolinux on BIOS, shim + GRUB on UEFI) and boots the
+   default entry automatically after 5 seconds — no keyboard needed
 2. Mounts squashfs read-only, adds RAM overlay
 3. Gets DHCP on all ethernet interfaces
 4. Clones the stupix repo and runs `auto.sh`
+
+Boot menu, kernel messages and `stupix:` progress lines are mirrored to the first
+serial port (`ttyS0`, 115200 8N1) on amd64, so you can follow along via IPMI SOL
+or a VM serial console. On arm64 the kernel uses the firmware's console (SPCR/DT).
 
 SSH in after ~30 seconds:
 ```
@@ -125,8 +131,10 @@ Credentials are baked into `/etc/stupix/repo.conf` (chmod 600) inside the ISO.
 auto/config                                          live-build configuration + repo env vars
 config/package-lists/stupix.list.chroot              packages installed into the ISO
 config/hooks/normal/0010-stupix-setup.hook.chroot    post-install hook (SSH, MOTD, services)
+config/hooks/normal/9000-stupix-bootloader.hook.binary  boot menu: 5s auto-boot + serial console
 config/includes.chroot/usr/local/bin/stupix-init.sh  boot init script (clone + run auto.sh)
 config/includes.chroot/etc/stupix/repo.conf          repo URL + credentials (build-time generated)
+ci/boot-test.sh                                      boots the ISO in QEMU (BIOS/UEFI/SB, CD/USB)
 .github/workflows/build-iso.yml                      CI: build → boot test → release
 ```
 
@@ -134,8 +142,16 @@ config/includes.chroot/etc/stupix/repo.conf          repo URL + credentials (bui
 
 Every push to `main`:
 1. Builds the ISO with `lb build` (~14 min)
-2. Boots it in QEMU (KVM) and verifies squashfs mounts, network comes up, stupix-init starts
-3. Only publishes a GitHub Release if the boot test passes
+2. Boots the unmodified ISO in QEMU — amd64: BIOS and UEFI, each as CD and as USB
+   stick, plus UEFI Secure Boot; arm64: UEFI as CD and USB — and requires every run to
+   reach a cloned stupix repo (DHCP, DNS, clone)
+3. Only publishes a GitHub Release if all boot tests pass
+
+Run a boot test locally (needs `qemu-system-x86` + `ovmf`):
+
+```bash
+bash ci/boot-test.sh live-image-amd64.hybrid.iso uefi-usb
+```
 
 ## SSH access
 

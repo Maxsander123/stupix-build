@@ -55,6 +55,9 @@ case "$STUPIX_ARCH" in
     amd64)
         BOOTLOADERS="grub-efi,syslinux"
         CROSS_OPTS=""
+        # Kernel output on COM1 (IPMI SOL / VM serial) and the screen; the
+        # last console= is /dev/console, so the screen stays primary.
+        CONSOLE="console=ttyS0,115200n8 console=tty0"
         ;;
     arm64)
         BOOTLOADERS="grub-efi"
@@ -63,10 +66,14 @@ case "$STUPIX_ARCH" in
         else
             CROSS_OPTS=""
         fi
+        # No console= — the kernel picks the UART from ACPI SPCR / device tree
+        # (ttyAMA0, ttyS0, … differs per board)
+        CONSOLE=""
         ;;
     *)
         BOOTLOADERS="grub-efi"
         CROSS_OPTS=""
+        CONSOLE=""
         ;;
 esac
 
@@ -77,7 +84,7 @@ lb config noauto \
     --initramfs live-boot \
     --binary-images iso-hybrid \
     --bootloaders "$BOOTLOADERS" \
-    --bootappend-live "boot=live components nomodeset net.ifnames=0 biosdevname=0" \
+    --bootappend-live "boot=live components nomodeset net.ifnames=0 biosdevname=0 ${CONSOLE}" \
     --iso-publisher "Stupix Project" \
     --iso-volume "Stupix Live" \
     --apt-recommends false \

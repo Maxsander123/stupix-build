@@ -13,7 +13,11 @@ LOG="$LOG_DIR/init.log"
 mkdir -p "$LOG_DIR"
 chmod 755 "$LOG_DIR"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [init] $*" | tee -a "$LOG"; }
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [init] $*" | tee -a "$LOG"
+    # Mirror to the kernel log so progress shows on every console (screen + serial/SOL)
+    echo "stupix: $*" > /dev/kmsg 2>/dev/null || true
+}
 
 log "=== Stupix Init started ==="
 log "Log: $LOG"
