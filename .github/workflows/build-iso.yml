@@ -223,10 +223,16 @@ jobs:
           apt-get update -y
           apt-get install -y --no-install-recommends \
             live-build debootstrap xorriso squashfs-tools \
-            qemu-user-static binfmt-support \
+            qemu-user-static qemu-user-binfmt \
             debian-archive-keyring \
             wget curl git gnupg2 ca-certificates sudo
-          update-binfmts --enable qemu-riscv64 2>/dev/null || true
+          # trixie registers qemu binfmts through systemd-binfmt, which does
+          # not run in a container — register riscv64 by hand (F flag: works
+          # inside the build chroot too)
+          mountpoint -q /proc/sys/fs/binfmt_misc ||
+            mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          [ -e /proc/sys/fs/binfmt_misc/qemu-riscv64 ] ||
+            cat /usr/lib/binfmt.d/qemu-riscv64.conf > /proc/sys/fs/binfmt_misc/register
           echo "live-build: $(lb --version)"
           echo "qemu-riscv64-static: $(qemu-riscv64-static --version 2>&1 | head -1)"
 

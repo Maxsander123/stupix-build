@@ -69,9 +69,21 @@ log "Network interface is up."
 # ---- wait for connectivity to repo host ----
 log "Waiting for connectivity to ${REPO_HOST}..."
 for i in $(seq 1 20); do
-    if curl -s --max-time 5 "https://${REPO_HOST}" > /dev/null 2>&1; then
+    rc=0
+    curl -s --max-time 5 "https://${REPO_HOST}" > /dev/null 2>&1 || rc=$?
+    if [ "$rc" -eq 0 ]; then
         log "Host ${REPO_HOST} reachable."
         break
+    fi
+    # 60 = certificate not trusted: usually a wrong clock — no RTC (many
+    # RISC-V boards) or a dead CMOS battery. Take the time from the host's
+    # HTTP Date header; the clone itself is still TLS-verified.
+    if [ "$rc" -eq 60 ]; then
+        NOW=$(curl -skI --max-time 5 "https://${REPO_HOST}" | tr -d '\r' | sed -n 's/^[Dd]ate: *//p')
+        if [ -n "$NOW" ] && date -s "$NOW" > /dev/null 2>&1; then
+            log "Clock was wrong, set from ${REPO_HOST}: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            continue
+        fi
     fi
     log "Attempt $i/20 — retrying in 3s..."
     sleep 3

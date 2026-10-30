@@ -55,6 +55,7 @@ echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
 #          riscv64 became an official Debian architecture with trixie —
 #          bookworm has no riscv64 port.
 DISTRIBUTION=bookworm
+ARCHIVE_AREAS="main contrib non-free non-free-firmware"
 SECURE_BOOT=auto
 case "$STUPIX_ARCH" in
     amd64)
@@ -77,6 +78,10 @@ case "$STUPIX_ARCH" in
         ;;
     riscv64)
         DISTRIBUTION=trixie
+        # trixie's live-build also takes firmware from contrib, which pulls in
+        # firmware-b43*-installer: they download Broadcom WiFi firmware at
+        # install time and fail the build when that download fails
+        ARCHIVE_AREAS="main non-free non-free-firmware"
         BOOTLOADERS="grub-efi"
         # No shim / signed GRUB exists for riscv64
         SECURE_BOOT=disable
@@ -103,17 +108,12 @@ esac
 
 echo "  DISTRIBUTION     = ${DISTRIBUTION}"
 
-# Security updates for the distribution this architecture is built on
-mkdir -p config/archives
-for list in chroot binary; do
-    echo "deb https://security.debian.org/debian-security ${DISTRIBUTION}-security main" \
-        > "config/archives/debian-security.list.${list}"
-done
+# Security updates: live-build adds <distribution>-security itself
 
 lb config noauto \
     --architectures "$STUPIX_ARCH" \
     --distribution "$DISTRIBUTION" \
-    --archive-areas "main contrib non-free non-free-firmware" \
+    --archive-areas "$ARCHIVE_AREAS" \
     --initramfs live-boot \
     --binary-images iso-hybrid \
     --bootloaders "$BOOTLOADERS" \
