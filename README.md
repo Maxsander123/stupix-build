@@ -125,7 +125,8 @@ sudo STUPIX_ARCH=arm64 lb config && sudo lb build
 # riscv64 — needs a Debian trixie host (or container): riscv64 is an official
 # Debian architecture only since trixie. Stock live-build has no riscv64 UEFI
 # support yet, ci/live-build-riscv64.sh adds it (patches /usr/lib/live/build).
-sudo apt-get install live-build debootstrap squashfs-tools xorriso qemu-user-static binfmt-support
+# (in a container, register the qemu-riscv64 binfmt by hand — see build-riscv64 in the workflow)
+sudo apt-get install live-build debootstrap squashfs-tools xorriso qemu-user-static
 sudo ci/live-build-riscv64.sh
 sudo STUPIX_ARCH=riscv64 lb config && sudo lb build
 # Output: live-image-riscv64.hybrid.iso
