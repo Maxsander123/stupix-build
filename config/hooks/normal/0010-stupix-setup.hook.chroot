@@ -60,7 +60,7 @@ cat > /etc/motd << 'MOTD'
 
 ============================================================
  Stupix - Server Diagnostics Live System
- Debian Bookworm | RAM-only | DHCP
+ @DEBIAN@ | RAM-only | DHCP
 ============================================================
  Logs:    /var/log/stupix/
  Scripts: /opt/stupix/
@@ -90,6 +90,9 @@ cat > /etc/motd << 'MOTD'
 ============================================================
 
 MOTD
+# amd64/arm64 are built on bookworm, riscv64 on trixie
+. /etc/os-release
+sed -i "s/@DEBIAN@/Debian ${VERSION_CODENAME} $(dpkg --print-architecture)/" /etc/motd
 echo "[hook] MOTD set."
 
 # Regenerate initramfs to ensure live-boot hooks are included

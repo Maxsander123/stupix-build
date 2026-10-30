@@ -4,3 +4,4 @@ binary/
 .build/
 *.iso
 *.log
+config/archives/debian-security.list.*

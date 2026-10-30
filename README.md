@@ -2,22 +2,28 @@
 
 Build system for the Stupix live OS.
 
-Stupix is a minimal Debian Bookworm based live system designed for server diagnostics.
+Stupix is a minimal Debian based live system designed for server diagnostics
+(Bookworm on amd64/arm64, Trixie on riscv64).
 It boots entirely from RAM using OverlayFS, obtains an IP address via DHCP,
 and automatically clones and runs the [stupix script repo](https://github.com/Maxsander123/stupix) on startup.
 
 ## Minimum Requirements
 
-| | amd64 | arm64 |
-|---|---|---|
-| **CPU** | 64-bit x86 (any) | ARMv8-A / ARM64 |
-| **RAM** | 2 GB (4 GB recommended) | 2 GB (4 GB recommended) |
-| **Boot** | Legacy BIOS or UEFI | UEFI |
-| **USB** | ≥ 1 GB | ≥ 1 GB |
-| **Network** | Ethernet with DHCP (needed to clone scripts) | same |
-| **Storage** | none — runs entirely from RAM | same |
+| | amd64 | arm64 | riscv64 |
+|---|---|---|---|
+| **CPU** | 64-bit x86 (any) | ARMv8-A / ARM64 | RV64GC (RVA20 or newer) |
+| **RAM** | 2 GB (4 GB recommended) | 2 GB (4 GB recommended) | 2 GB (4 GB recommended) |
+| **Boot** | Legacy BIOS or UEFI | UEFI | UEFI |
+| **USB** | ≥ 1 GB | ≥ 1 GB | ≥ 1 GB |
+| **Network** | Ethernet with DHCP (needed to clone scripts) | same | same |
+| **Storage** | none — runs entirely from RAM | same | same |
 
 > **Raspberry Pi 4/5:** Requires UEFI firmware on the SD card (e.g. [pftf/RPi4-UEFI-Firmware](https://github.com/pftf/RPi4-UEFI-Firmware)). The onboard bootloader alone is not sufficient.
+
+> **RISC-V boards:** need UEFI firmware (EDK2, or U-Boot with its UEFI implementation — the
+> default on most vendor images, e.g. StarFive VisionFive 2, Milk-V, SiFive). No Secure Boot:
+> Debian has no signed shim/GRUB for riscv64. The kernel is Debian's generic `linux-image-riscv64`,
+> so the board needs mainline kernel support.
 
 ## Download
 
@@ -27,6 +33,7 @@ Latest ISOs from [Releases](https://github.com/Maxsander123/stupix-build/release
 |---|---|---|
 | `stupix-linux-amd64.iso` | x86-64 (PC, server) | Legacy BIOS + UEFI |
 | `stupix-linux-arm64.iso` | ARM64 (RPi, ARM server) | UEFI |
+| `stupix-linux-riscv64.iso` | RISC-V 64 (UEFI boards, servers) | UEFI |
 
 ## Writing to USB
 
@@ -52,7 +59,7 @@ UEFI Secure Boot all work. The system:
 
 Boot menu, kernel messages and `stupix:` progress lines are mirrored to the first
 serial port (`ttyS0`, 115200 8N1) on amd64, so you can follow along via IPMI SOL
-or a VM serial console. On arm64 the kernel uses the firmware's console (SPCR/DT).
+or a VM serial console. On arm64 and riscv64 the kernel uses the firmware's console (SPCR/DT).
 
 SSH in after ~30 seconds:
 ```
@@ -106,6 +113,24 @@ sudo lb build
 # Output: live-image-amd64.hybrid.iso
 ```
 
+### Other architectures
+
+arm64 and riscv64 are cross-built on an amd64 host through `qemu-user-static`:
+
+```bash
+# arm64 — Debian bookworm host
+sudo apt-get install qemu-user-static binfmt-support
+sudo STUPIX_ARCH=arm64 lb config && sudo lb build
+
+# riscv64 — needs a Debian trixie host (or container): riscv64 is an official
+# Debian architecture only since trixie. Stock live-build has no riscv64 UEFI
+# support yet, ci/live-build-riscv64.sh adds it (patches /usr/lib/live/build).
+sudo apt-get install live-build debootstrap squashfs-tools xorriso qemu-user-static binfmt-support
+sudo ci/live-build-riscv64.sh
+sudo STUPIX_ARCH=riscv64 lb config && sudo lb build
+# Output: live-image-riscv64.hybrid.iso
+```
+
 ### Custom repo source
 
 Override the script repo at build time (Gitea, GitLab, Forgejo, GitHub Enterprise):
@@ -135,6 +160,7 @@ config/hooks/normal/9000-stupix-bootloader.hook.binary  boot menu: 5s auto-boot 
 config/includes.chroot/usr/local/bin/stupix-init.sh  boot init script (clone + run auto.sh)
 config/includes.chroot/etc/stupix/repo.conf          repo URL + credentials (build-time generated)
 ci/boot-test.sh                                      boots the ISO in QEMU (BIOS/UEFI/SB, CD/USB)
+ci/live-build-riscv64.sh                             adds riscv64 UEFI support to live-build
 .github/workflows/build-iso.yml                      CI: build → boot test → release
 ```
 
@@ -143,7 +169,7 @@ ci/boot-test.sh                                      boots the ISO in QEMU (BIOS
 Every push to `main`:
 1. Builds the ISO with `lb build` (~14 min)
 2. Boots the unmodified ISO in QEMU — amd64: BIOS and UEFI, each as CD and as USB
-   stick, plus UEFI Secure Boot; arm64: UEFI as CD and USB — and requires every run to
+   stick, plus UEFI Secure Boot; arm64 and riscv64: UEFI as CD and USB — and requires every run to
    reach a cloned stupix repo (DHCP, DNS, clone)
 3. Only publishes a GitHub Release if all boot tests pass
 
@@ -151,6 +177,9 @@ Run a boot test locally (needs `qemu-system-x86` + `ovmf`):
 
 ```bash
 bash ci/boot-test.sh live-image-amd64.hybrid.iso uefi-usb
+
+# riscv64 needs qemu-system-riscv + qemu-efi-riscv64 (Debian trixie)
+bash ci/boot-test.sh live-image-riscv64.hybrid.iso riscv64-cd
 ```
 
 ## SSH access

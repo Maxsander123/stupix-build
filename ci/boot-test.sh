@@ -6,6 +6,7 @@
 # usage: ci/boot-test.sh <iso> <mode> [log]
 #   amd64: bios-cd | bios-usb | uefi-cd | uefi-usb | uefi-sb-cd
 #   arm64: arm64-cd | arm64-usb
+#   riscv64: riscv64-cd | riscv64-usb
 #
 #   *-cd   ISO attached as optical drive (VMs, BMC virtual media)
 #   *-usb  ISO attached as raw USB stick (what `dd` to a stick produces)
@@ -29,6 +30,21 @@ case "$MODE" in
         TIMEOUT=${BOOT_TIMEOUT:-1500}
         FW="-machine virt -cpu cortex-a57 -smp 4
             -bios $(ovmf /usr/share/qemu-efi-aarch64/QEMU_EFI.fd /usr/share/AAVMF/QEMU_EFI.fd)"
+        NET="-device virtio-net-pci,netdev=n0,romfile="
+        ;;
+    riscv64-*)
+        # EDK2 needs both pflash images padded to 32 MiB
+        QEMU=qemu-system-riscv64
+        TIMEOUT=${BOOT_TIMEOUT:-2400}
+        CODE=$(ovmf /usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd)
+        cp "$(ovmf /usr/share/qemu-efi-riscv64/RISCV_VIRT_VARS.fd)" "$TMP/vars.fd"
+        truncate -s 32M "$TMP/vars.fd"
+        if [ "$(stat -c %s "$CODE")" -ne 33554432 ]; then
+            cp "$CODE" "$TMP/code.fd"; truncate -s 32M "$TMP/code.fd"; CODE=$TMP/code.fd
+        fi
+        FW="-machine virt,pflash0=fw0,pflash1=fw1 -cpu rv64 -smp 4
+            -blockdev node-name=fw0,driver=file,filename=$CODE,read-only=on
+            -blockdev node-name=fw1,driver=file,filename=$TMP/vars.fd"
         NET="-device virtio-net-pci,netdev=n0,romfile="
         ;;
     *)
@@ -56,7 +72,7 @@ case "$MODE" in
 esac
 
 case "$MODE" in
-    arm64-cd)
+    arm64-cd|riscv64-cd)
         MEDIA="-device virtio-scsi-pci -drive file=$ISO,media=cdrom,readonly=on,if=none,id=cd0
                -device scsi-cd,drive=cd0,bootindex=0" ;;
     *-cd)

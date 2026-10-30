@@ -49,8 +49,13 @@ echo "  STUPIX_REPO_USER = ${STUPIX_REPO_USER:-<none>}"
 echo "  STUPIX_REPO_TOKEN= ${STUPIX_REPO_TOKEN:+<set>}${STUPIX_REPO_TOKEN:-<none>}"
 echo "  STUPIX_ARCH      = ${STUPIX_ARCH}"
 
-# amd64: BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
-# arm64: UEFI only (all ARM servers/modern boards use UEFI), cross-built via qemu-user-static
+# amd64:   BIOS (syslinux/isolinux) + UEFI (grub-efi) — boots on everything
+# arm64:   UEFI only (all ARM servers/modern boards use UEFI), cross-built via qemu-user-static
+# riscv64: UEFI only, cross-built via qemu-user-static. Debian trixie, because
+#          riscv64 became an official Debian architecture with trixie —
+#          bookworm has no riscv64 port.
+DISTRIBUTION=bookworm
+SECURE_BOOT=auto
 case "$STUPIX_ARCH" in
     amd64)
         BOOTLOADERS="grub-efi,syslinux"
@@ -70,6 +75,25 @@ case "$STUPIX_ARCH" in
         # (ttyAMA0, ttyS0, … differs per board)
         CONSOLE=""
         ;;
+    riscv64)
+        DISTRIBUTION=trixie
+        BOOTLOADERS="grub-efi"
+        # No shim / signed GRUB exists for riscv64
+        SECURE_BOOT=disable
+        if [ -f "/usr/bin/qemu-riscv64-static" ]; then
+            CROSS_OPTS="--bootstrap-qemu-arch riscv64 --bootstrap-qemu-static /usr/bin/qemu-riscv64-static"
+        else
+            CROSS_OPTS=""
+        fi
+        # Stock live-build has no riscv64 UEFI support — see ci/live-build-riscv64.sh
+        if ! grep -qs riscv64-efi /usr/lib/live/build/binary_grub-efi; then
+            echo "E: live-build cannot build riscv64 UEFI images yet." >&2
+            echo "E: Run 'sudo ci/live-build-riscv64.sh' once, then retry." >&2
+            exit 1
+        fi
+        # No console= — the kernel picks the UART from the device tree / ACPI SPCR
+        CONSOLE=""
+        ;;
     *)
         BOOTLOADERS="grub-efi"
         CROSS_OPTS=""
@@ -77,9 +101,18 @@ case "$STUPIX_ARCH" in
         ;;
 esac
 
+echo "  DISTRIBUTION     = ${DISTRIBUTION}"
+
+# Security updates for the distribution this architecture is built on
+mkdir -p config/archives
+for list in chroot binary; do
+    echo "deb https://security.debian.org/debian-security ${DISTRIBUTION}-security main" \
+        > "config/archives/debian-security.list.${list}"
+done
+
 lb config noauto \
     --architectures "$STUPIX_ARCH" \
-    --distribution bookworm \
+    --distribution "$DISTRIBUTION" \
     --archive-areas "main contrib non-free non-free-firmware" \
     --initramfs live-boot \
     --binary-images iso-hybrid \
@@ -89,5 +122,6 @@ lb config noauto \
     --iso-volume "Stupix Live" \
     --apt-recommends false \
     --keyring-packages debian-archive-keyring \
+    --uefi-secure-boot "$SECURE_BOOT" \
     $CROSS_OPTS \
     "${@}"

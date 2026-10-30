@@ -200,10 +200,99 @@ jobs:
           retention-days: 5
           if-no-files-found: warn
 
+  # ── riscv64: cross-build on amd64 via qemu-user-static ──────────────────
+  # Debian trixie: riscv64 is an official Debian architecture only since
+  # trixie, and trixie's live-build plus ci/live-build-riscv64.sh is what
+  # produces a riscv64 UEFI image.
+  build-riscv64:
+    runs-on: ubuntu-22.04
+    container:
+      image: debian:trixie
+      options: --privileged
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      STUPIX_ARCH: riscv64
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Install build dependencies
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            live-build debootstrap xorriso squashfs-tools \
+            qemu-user-static binfmt-support \
+            debian-archive-keyring \
+            wget curl git gnupg2 ca-certificates sudo
+          update-binfmts --enable qemu-riscv64 2>/dev/null || true
+          echo "live-build: $(lb --version)"
+          echo "qemu-riscv64-static: $(qemu-riscv64-static --version 2>&1 | head -1)"
+
+      - name: 🩹 Add riscv64 UEFI support to live-build
+        run: sh ci/live-build-riscv64.sh
+
+      - name: ⚙️ Configure
+        run: lb config
+
+      - name: 🏗️ Build ISO
+        shell: bash
+        run: |
+          lb build 2>&1 | tee build.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          find . -name "*.iso" 2>/dev/null || echo "No ISO found"
+          exit ${EXIT_CODE}
+
+      - name: 📄 Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-riscv64
+          path: build.log
+          retention-days: 5
+          if-no-files-found: warn
+
+      - name: 📍 Find ISO
+        id: find_iso
+        shell: bash
+        run: |
+          ISO=$(find . -maxdepth 2 -name "*.iso" -type f | head -1)
+          [ -z "$ISO" ] && { echo "❌ No ISO found"; ls -lah; exit 1; }
+          echo "✅ ISO: $ISO  ($(ls -lh "$ISO" | awk '{print $5}'))"
+          cp "$ISO" "$(pwd)/stupix-linux-riscv64.iso"
+          echo "iso_path=$(pwd)/stupix-linux-riscv64.iso" >> $GITHUB_OUTPUT
+
+      # ── Boot tests: riscv64 UEFI (EDK2), software-emulated ──────────────
+      - name: 📦 Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stupix-linux-riscv64
+          path: stupix-linux-riscv64.iso
+          retention-days: 7
+
+      - name: 🔧 Install QEMU + EDK2
+        run: apt-get install -y --no-install-recommends qemu-system-riscv qemu-efi-riscv64
+
+      - name: 🔍 Boot Test — riscv64 UEFI (CD)
+        run: bash ci/boot-test.sh "${{ steps.find_iso.outputs.iso_path }}" riscv64-cd
+
+      - name: 🔍 Boot Test — riscv64 UEFI (USB)
+        run: bash ci/boot-test.sh "${{ steps.find_iso.outputs.iso_path }}" riscv64-usb
+
+      - name: 📄 Upload Boot Test Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-test-log-riscv64
+          path: boot-*.log
+          retention-days: 5
+          if-no-files-found: warn
+
   # ── Release: every boot test must pass ────────────────────────────────
   release:
-    needs: [build-amd64, build-arm64]
-    # No always() — both build jobs must succeed. PRs and branch runs only test.
+    needs: [build-amd64, build-arm64, build-riscv64]
+    # No always() — all build jobs must succeed. PRs and branch runs only test.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
 
@@ -218,6 +307,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: stupix-linux-arm64
+          path: release/
+
+      - name: 📥 Download riscv64 ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: stupix-linux-riscv64
           path: release/
 
       - name: 🚀 Create GitHub Release
@@ -236,6 +331,7 @@ jobs:
             - ✅ amd64 UEFI (OVMF / shim + GRUB)
             - ✅ amd64 UEFI with Secure Boot
             - ✅ arm64 UEFI (QEMU_EFI / GRUB)
+            - ✅ riscv64 UEFI (EDK2 / GRUB)
 
             ## Downloads
 
@@ -243,6 +339,7 @@ jobs:
             |---|---|---|
             | `stupix-linux-amd64.iso` | x86-64 (PC, server) | Legacy BIOS + UEFI |
             | `stupix-linux-arm64.iso` | ARM64 (RPi, ARM server) | UEFI |
+            | `stupix-linux-riscv64.iso` | RISC-V 64 (RVA20+, UEFI boards) | UEFI |
 
             ## Flash to USB
 
